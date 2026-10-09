@@ -11,3 +11,4 @@ __pycache__/
 # uPlot download marker (make vendor writes it when there is no network)
 head/static/vendor/.pending
 head/static/vendor/uplot/.pending
+infra/functions/.deployed/
