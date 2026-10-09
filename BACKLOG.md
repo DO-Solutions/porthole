@@ -1,7 +1,8 @@
 # Backlog
 
-Things the wringer found or thought of but did not change, each with the reason. Decisions go to Darian; the
-rest waits for a build that touches the same code. Bugs observed against the live API go in `BUGS.md`, not here.
+Things the review found or thought of but did not change, each with the reason. The decisions are for the
+maintainers; the rest waits for a build that touches the same code. Bugs observed against the live API go in
+`BUGS.md`, not here.
 
 ## Decisions
 
