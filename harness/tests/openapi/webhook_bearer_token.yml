@@ -9,7 +9,7 @@ properties:
     format: password
     writeOnly: true
     description: |
-      Bearer token value sent in the Authorization header. Write-only secret —
+      Bearer token value sent in the Authorization header. Write-only secret;
       send the full value on create or update. Omit on update to retain the
       existing value. Never returned in responses.
     example: secret-token

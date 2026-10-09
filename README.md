@@ -7,8 +7,8 @@ records about it through the Insights API. Every API call the page makes is list
 webhooks come back to the page so an alert round trip can be watched end to end.
 
 The head is a FastAPI app on App Platform, so it is itself a resource Insights watches. It uses the Insights
-harness (`harness/`) as a library and drives the tentacles (`tentacle/`) over their HTTP API; both are documented
-in [CORE.md](CORE.md). Provisioning and teardown live in `infra/`. Nothing in this repo is a secret.
+harness (`harness/`) as a library and drives the tentacles (`tentacle/`) over their HTTP API; both are described
+under "Harness and tentacle" below. Provisioning and teardown live in `infra/`. Nothing in this repo is a secret.
 
 ## The pages
 
@@ -124,6 +124,45 @@ variable; the next deploy picks it up.
 5. Insights itself: [BUGS.md](BUGS.md) lists what is unverified or known to differ from the docs.
 
 Security posture and how to report a problem: [SECURITY.md](SECURITY.md).
+
+## Harness and tentacle
+
+Both are carried over unchanged from the core build and work on their own.
+
+The harness (`harness/insights_harness.py`, needs httpx) is a library and CLI over the Insights API. The token
+comes only from `DIGITALOCEAN_TOKEN` and is never printed; `--trace` prints each request and response to stderr
+with write-only secrets masked. A 429 waits for `ratelimit-reset` (at most 120 s) and retries once.
+
+```bash
+python3 harness/insights_harness.py <group> <verb> [args] [--region R] [--json] [--trace]
+```
+
+The groups are `channels` and `rules` (list, get, create, update, and delete with `--yes`), `instances`, `prom`
+(query, range, labels, values, series; discovery calls always send a window), `logs` (search, iter) and `probe`.
+Each probe reproduces a finding of the facts pack (`labels-window` A1, `rules-visibility` A2, `regions` A3,
+`naming` A4, `endpoints` A5, `tags` A8, `logs-api` L3) and prints one PASS, FAIL or INFO line per check. Write
+probes need `--write`, create paused rules with an unreachable threshold, and delete them even when a step fails.
+
+The tentacle (`tentacle/tentacle.py`, FastAPI) is the scenario service on each Droplet:
+
+| variable | default | meaning |
+|---|---|---|
+| `TENTACLE_NAME` | hostname | name in logs, spans and `/health` |
+| `TENTACLE_KEY` | | bearer for every endpoint except `/health` and `GET /scenarios`; unset means they return 503 |
+| `TENTACLE_PORT` | `8800` | listen port |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://127.0.0.1:4318` | OTLP/HTTP base for traces and logs |
+| `OTEL_SERVICE_NAME` | `TENTACLE_NAME` | `service.name` on spans and log records |
+| `PEER_URL` | | another tentacle: network target and hop 2 of chains; it must share `TENTACLE_KEY` |
+| `PG_DSN`, `FN_URL` | | managed Postgres and the Function, for the `pg` scenario and the chain legs |
+| `TENTACLE_LOG_FILE`, `TENTACLE_DATA_DIR` | `/var/log/tentacle/tentacle.jsonl`, `/var/tmp/tentacle` | JSON log file, disk-fill files |
+
+`POST /scenario/{cpu,memory,disk,network,logs,chain,pg}` starts a bounded run, at most 8 at once; memory and disk
+answer 409 when they would starve the machine. `POST /scenario/stop/{id}` stops one; `POST /sink` and
+`GET /chain/hop` serve the network and chain scenarios. Each run logs its start and end and emits a
+`scenario.<name>` span. Log lines are JSON on stdout and in the log file; traces and logs go out over OTLP/HTTP and
+fail quietly when no collector listens. `tentacle/install.sh` is idempotent and works as `user_data` with
+`export` lines right after the shebang (`infra/steps/droplets.py` writes them). It writes `/etc/tentacle/env`
+once (`TENTACLE_ENV_OVERWRITE=1` rewrites it) and runs the service under systemd.
 
 ## Layout
 

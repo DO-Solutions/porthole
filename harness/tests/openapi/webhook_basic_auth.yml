@@ -15,7 +15,7 @@ properties:
     format: password
     writeOnly: true
     description: |
-      Basic auth password. Write-only secret — send the full value on create
+      Basic auth password. Write-only secret; send the full value on create
       or update. Omit on update to retain the existing value. Never returned
       in responses.
     example: secret-password

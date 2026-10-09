@@ -10,7 +10,7 @@ properties:
     type: string
     writeOnly: true
     description: |
-      Slack incoming webhook URL. Write-only secret — send the full value on
+      Slack incoming webhook URL. Write-only secret; send the full value on
       create or update. Omit on update to retain the existing value. Never
       returned in responses.
     example: https://hooks.slack.com/services/T000/B000/XXXXXXXX
