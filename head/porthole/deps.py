@@ -135,7 +135,7 @@ def build_services(deps: Deps) -> None:
     from porthole.voyages import VoyageEngine
     from porthole.voyages_catalog import CATALOG
 
-    deps.links = DeepLinks(deps.settings.fleet, deps.settings.deeplink_overrides)
+    deps.links = DeepLinks(deps.settings.fleet, deps.settings.deeplink_overrides, deps.settings.do_context)
     deps.panels = Panels(deps)
     deps.alert_panels = AlertPanels(deps.panels)
     deps.log_panels = LogPanels(deps.panels)

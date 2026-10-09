@@ -1,9 +1,9 @@
 // Traces (/traces): chain runs with their trace ids, the head's own spans from memory, and where they went.
-import { $, api, clear, copy, el, errorText, fmtDateTime, fmtNum, frame } from "../porthole.js";
+import { $, api, bindRegionLink, clear, copy, el, errorText, fmtDateTime, fmtNum, frame } from "../porthole.js";
 
 const cfg = await frame();
 const link = cfg.links["insights.traces"] || {};
-$("#traces-link").setAttribute("href", link.url || "#");
+bindRegionLink($("#traces-link"), link);
 if (!link.verified) $("#traces-link").setAttribute("title", "link pattern not verified yet (see BUGS.md)");
 
 function idCell(id) {

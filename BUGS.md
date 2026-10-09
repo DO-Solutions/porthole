@@ -16,14 +16,14 @@ wontfix. Never write an observation nobody made.
 - status: open -> reported -> fixed / wontfix
 ```
 
-## B-001  Insights tab URLs are not documented     (to verify)
-- when: 2026-10-09 (build)   where: head `porthole/deeplinks.py`, design Appendix A   finding: none yet
+## B-001  Insights tab URLs are not documented     (verified)
+- when: 2026-10-09 (build); URLs read 2026-10-09 ~00:20Z by Darian   where: head `porthole/deeplinks.py`, design Appendix A   finding: none
 - request we made / received: none; the docs give only the menu path DATA & LEARNING > Insights > tab
 - response: n/a
 - expected: a stable URL per tab (Metrics, Dashboards, Alerts, Logs, Traces), with region and range in the query
-- observed: not observed yet. The head links to `https://cloud.digitalocean.com/insights/<tab>` and marks each link unverified
-- reproduce: open each tab with region tor1 and a 1-hour range, copy the address bar into `PORTHOLE_DEEPLINKS_JSON` and here
-- status: to verify
+- observed: `https://cloud.digitalocean.com/insights/<tab>?i=<context>&region=<region>&from=now-1h&to=now` for metrics, dashboards, alerts, logs and traces; the control panel also has `uptime/checks` and `settings` under Insights, which the docs do not list. `i=` is the team context, now `PORTHOLE_DO_CONTEXT`. A Droplet's own `/droplets/<id>/insights` tab is the legacy Monitoring graphs (finding A16)
+- reproduce: open each tab with region tor1 and a 1-hour range and compare the address bar with `/api/config` links
+- status: verified; the head marks the seven tab links verified
 
 ## B-002  URN formats for resources other than Droplets     (to verify)
 - when: 2026-10-09 (build)   where: `infra/fleet.py`, head fleet dots, design Appendix D   finding: none yet

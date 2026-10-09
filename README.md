@@ -86,7 +86,8 @@ Environment variables only. `head/.env.example` lists each one with a comment.
 | `PORTHOLE_INSIGHTS_WRITE` | general | `0` | `1` shows Pause and Resume on the Alerts page |
 | `PORTHOLE_INSIGHTS_BASE_URL` | general | `https://api.digitalocean.com` | the fake uses `http://insights-fake:9000` |
 | `PORTHOLE_TRUST_PROXY` | general | `1` | read the client address from the first `X-Forwarded-For` hop |
-| `PORTHOLE_DEEPLINKS_JSON` | general | | overrides for control-panel link patterns once verified |
+| `PORTHOLE_DEEPLINKS_JSON` | general | | overrides for control-panel link patterns, keyed as in `head/porthole/deeplinks.py` |
+| `PORTHOLE_DO_CONTEXT` | general | | team context id, the `i=` parameter of the Insights tab links; empty leaves it out |
 | `PORTHOLE_UPSTREAM_BUDGET_PER_MIN` | general | `200` | Insights calls per minute before panels serve cached data |
 | `PORTHOLE_CACHE_TTL_S` | general | `20` | panel cache lifetime |
 | `PORTHOLE_BRAIN` | general | `deckhand` | `deckhand`, `harness-runtime` or `off` |

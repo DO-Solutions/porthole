@@ -108,6 +108,13 @@ def test_bad_fleet_json_degrades_instead_of_crashing():
     assert any("PORTHOLE_FLEET_JSON: PORTHOLE_FLEET_JSON is not JSON" in p for p in s.problems)
 
 
+def test_the_control_panel_context_is_checked():
+    assert Settings.from_env(base_env(PORTHOLE_DO_CONTEXT="00ab12")).do_context == "00ab12"
+    s = Settings.from_env(base_env(PORTHOLE_DO_CONTEXT="00ab12&evil=1"))
+    assert s.do_context == ""
+    assert any("PORTHOLE_DO_CONTEXT" in p for p in s.problems)
+
+
 def test_deeplink_overrides_must_be_an_object():
     s = Settings.from_env(base_env(PORTHOLE_DEEPLINKS_JSON="[1,2]"))
     assert s.deeplink_overrides == {}

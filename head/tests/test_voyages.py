@@ -171,4 +171,4 @@ async def test_chain_points_at_the_heads_own_span(env):
     assert await env.run_until(lambda: run.status != "sailing")
     assert run.trace_id and run.summary["head_trace_id"] == run.trace_id
     assert run.step("own-span").data["span"] is not None
-    assert run.step("link").artifacts[0]["verified"] is False
+    assert run.step("link").artifacts[0]["verified"] is True

@@ -1,7 +1,7 @@
 // Dashboards (/dashboards): the committed Kraken's Eye file, its variables and thresholds, and each chart's
 // query run here (dashboards have no API, so this is as close as Porthole can get).
 import { chartActions, drawRange } from "../charts.js";
-import { $, api, clear, copy, el, errorText, frame, jsonTree, region } from "../porthole.js";
+import { $, api, bindRegionLink, clear, copy, el, errorText, frame, jsonTree, region } from "../porthole.js";
 
 const cfg = await frame();
 let handle = null;
@@ -42,7 +42,7 @@ function renderSidecar(side) {
 }
 
 const link = cfg.links["insights.dashboards"] || {};
-$("#dash-link").setAttribute("href", link.url || "#");
+bindRegionLink($("#dash-link"), link);
 if (!link.verified) $("#dash-link").setAttribute("title", "link pattern not verified yet (see BUGS.md)");
 try {
   const data = await api("/api/dashboards/krakens-eye");

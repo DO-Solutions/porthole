@@ -1,6 +1,6 @@
 // The uPlot wrapper: one x array from start to end by step, gaps stay gaps, colors follow the fleet member,
 // at most 8 drawn series, a crosshair tooltip, a legend for two or more series, and a table twin on every chart.
-import { clear, el, fmtDateTime } from "./porthole.js";
+import { clear, el, fmtDateTime, regionUrl } from "./porthole.js";
 
 const MAX_DRAWN = 8;
 
@@ -186,8 +186,10 @@ export function chartActions(box, getHandle, { promql, link, copy } = {}) {
   } }, "table view"));
   if (promql) box.append(el("button", { type: "button", onclick: () => copy(promql(), "PromQL copied") }, "copy PromQL"));
   if (link && link.url) {
-    box.append(el("a", { class: "button", href: link.url, target: "_blank", rel: "noopener",
-      title: link.verified ? "" : "link pattern not verified yet (see BUGS.md)" },
+    // The href is refreshed on every click, so the link follows the region selector.
+    const refresh = (ev) => ev.currentTarget.setAttribute("href", regionUrl(link));
+    box.append(el("a", { class: "button", href: regionUrl(link), target: "_blank", rel: "noopener",
+      onclick: refresh, onauxclick: refresh, title: link.verified ? "" : "link pattern not verified yet (see BUGS.md)" },
     `open in Insights${link.verified ? "" : " (unverified link)"}`));
   }
 }

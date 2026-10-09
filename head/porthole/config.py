@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,6 +53,8 @@ VARIABLES: tuple[Var, ...] = (
         "1 reads the client address from the first X-Forwarded-For hop (App Platform); 0 locally"),
     Var("PORTHOLE_DEEPLINKS_JSON", "GENERAL", "",
         "JSON object overriding control-panel link patterns once they are verified"),
+    Var("PORTHOLE_DO_CONTEXT", "GENERAL", "",
+        "team context id, the i= parameter of control-panel Insights links; empty leaves it out"),
     Var("PORTHOLE_UPSTREAM_BUDGET_PER_MIN", "GENERAL", "200",
         "Insights calls allowed per minute before panels serve cached data"),
     Var("PORTHOLE_CACHE_TTL_S", "GENERAL", "20", "panel cache lifetime in seconds"),
@@ -90,6 +93,7 @@ class Settings:
     insights_base_url: str = "https://api.digitalocean.com"
     trust_proxy: bool = True
     deeplink_overrides: dict = field(default_factory=dict)
+    do_context: str = ""
     upstream_budget_per_min: int = 200
     cache_ttl_s: float = 20.0
     brain: str = "deckhand"
@@ -161,6 +165,10 @@ class Settings:
             except ValueError:
                 problems.append("PORTHOLE_DEEPLINKS_JSON is not a JSON object; using the default links")
                 overrides = {}
+        do_context = get("PORTHOLE_DO_CONTEXT")
+        if do_context and not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", do_context):
+            problems.append("PORTHOLE_DO_CONTEXT may hold only letters, digits, _ and -; Insights links leave it out")
+            do_context = ""
         brain = get("PORTHOLE_BRAIN").lower()
         if brain not in ("deckhand", "harness-runtime", "off"):
             problems.append(f"PORTHOLE_BRAIN={brain!r} is not deckhand, harness-runtime or off; using deckhand")
@@ -176,6 +184,7 @@ class Settings:
                 insights_write=get("PORTHOLE_INSIGHTS_WRITE") == "1",
                 insights_base_url=get("PORTHOLE_INSIGHTS_BASE_URL").rstrip("/"),
                 trust_proxy=get("PORTHOLE_TRUST_PROXY") != "0", deeplink_overrides=overrides,
+                do_context=do_context,
                 upstream_budget_per_min=number("PORTHOLE_UPSTREAM_BUDGET_PER_MIN", int, 1),
                 cache_ttl_s=number("PORTHOLE_CACHE_TTL_S", float, 0), brain=brain,
                 brain_session=get("PORTHOLE_BRAIN_SESSION"), brain_token=get("PORTHOLE_BRAIN_TOKEN"),

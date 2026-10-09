@@ -185,7 +185,7 @@ async def test_chain_runs_listed_with_trace_ids(env):
     body = (await env.client.get("/api/traces/chains")).json()
     (chain,) = body["chains"]
     assert chain["ok"] + chain["failed"] == 20 and len(chain["first_trace_id"]) == 32
-    assert body["traces_link"]["verified"] is False
+    assert body["traces_link"]["verified"] is True
 
 
 async def test_probes_fall_back_to_family_metrics():

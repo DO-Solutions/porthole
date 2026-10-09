@@ -76,6 +76,17 @@ export function region(cfg) {
 }
 export function regionsFor(r, cfg) { return r === "both" ? cfg.regions : [r]; }
 export function onRegion(fn) { regionListeners.push(fn); }
+// An Insights tab link opens on the selected region; "both" or no choice yet uses the link's default URL.
+export function regionUrl(link) {
+  const r = new URL(location.href).searchParams.get("region") || sessionStorage.getItem(REGION_STORE);
+  return (link && link.by_region && link.by_region[r]) || (link && link.url) || null;
+}
+// Keeps a static anchor pointing at the selected region's URL.
+export function bindRegionLink(a, link) {
+  const update = () => a.setAttribute("href", regionUrl(link) || "#");
+  update();
+  onRegion(update);
+}
 function setRegion(r) {
   sessionStorage.setItem(REGION_STORE, r);
   const u = new URL(location.href);
