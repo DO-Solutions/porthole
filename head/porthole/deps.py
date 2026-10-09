@@ -123,10 +123,14 @@ class Deps:
 def build_services(deps: Deps) -> None:
     """Attach the services of later milestones. Imports are local so modules can import deps types freely."""
     from porthole.deeplinks import DeepLinks
+    from porthole.hooks import DeliveryStore
     from porthole.panels import Panels
     from porthole.panels_alerts import AlertPanels
     from porthole.panels_logs import LogPanels
+    from porthole.scenarios import ScenarioService
     from porthole.tentacles import FleetPoller
+    from porthole.voyages import VoyageEngine
+    from porthole.voyages_catalog import CATALOG
 
     deps.links = DeepLinks(deps.settings.fleet, deps.settings.deeplink_overrides)
     deps.panels = Panels(deps)
@@ -135,3 +139,9 @@ def build_services(deps: Deps) -> None:
     deps.panels_caps = deps.panels.caps
     deps.poller = FleetPoller(deps)
     deps.on_start(lambda: deps.spawn(deps.poller.run(), "fleet-poller"))
+    deps.scenarios = ScenarioService(deps)
+    deps.scenarios_caps = deps.scenarios.caps
+    deps.hooks = DeliveryStore(deps.hub, deps.clock.now)
+    deps.voyages = VoyageEngine(deps, CATALOG)
+    deps.on_stop(deps.voyages.close)
+    deps.on_stop(deps.scenarios.close)

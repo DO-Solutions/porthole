@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Porthole: Stir the water</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/skin.css">
+  <link rel="stylesheet" href="/static/css/porthole.css">
+  <script type="module" src="/static/js/pages/stir.js"></script>
+</head>
+<body>
+  <header id="frame-top"></header>
+  <main>
+    <section class="card span-12" aria-labelledby="stir-title">
+      <h1 id="stir-title">Stir the water</h1>
+      <p class="explainer">Scenarios run on the tentacles for a bounded time and stop on their own. Starting one needs the captain's key; watching does not. Voyages chain scenarios and Insights checks into one story and record every step with a timestamp.</p>
+    </section>
+    <section class="card span-7" aria-labelledby="scenarios-title">
+      <h2 id="scenarios-title">Scenarios</h2>
+      <div class="row"><span class="label">target</span><div class="segmented" role="group" aria-label="target" id="targets"></div></div>
+      <div class="chips" role="group" aria-label="scenario" id="tiles"></div>
+      <p class="dim" id="story"></p>
+      <div class="row" id="params"></div>
+      <div class="row"><button type="button" class="primary" id="start">Start</button><span class="small dim" id="start-note"></span></div>
+    </section>
+    <section class="card span-5" aria-labelledby="running-title">
+      <h2 id="running-title">Running now</h2>
+      <div id="running"><p class="empty">loading...</p></div>
+      <h3>Finished (last 50)</h3>
+      <div class="table-wrap" id="finished"></div>
+    </section>
+    <section class="card span-12" aria-labelledby="voyages-title">
+      <h2 id="voyages-title">Voyages</h2>
+      <div class="chips" role="group" aria-label="voyage" id="voyage-tiles"></div>
+      <p id="voyage-story"></p>
+      <div class="row" id="voyage-controls"></div>
+    </section>
+    <section class="card span-12" aria-labelledby="timeline-title">
+      <h2 id="timeline-title">Timeline</h2>
+      <div id="timeline"><p class="empty">No voyage has sailed yet.</p></div>
+    </section>
+  </main>
+  <footer id="frame-drawer"></footer>
+</body>
+</html>

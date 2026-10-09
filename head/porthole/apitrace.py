@@ -206,18 +206,21 @@ class TracedInsights(Insights):
 
 
 async def traced_request(client: httpx.AsyncClient, api_trace: ApiTrace, *, target: str, method: str, url: str,
-                         entity: str | None = None, record: bool = True, **kwargs: Any) -> httpx.Response:
-    """One async exchange recorded like an Insights call. Transport errors are recorded, then re-raised."""
+                         entity: str | None = None, record: bool = True, record_errors: bool = True,
+                         **kwargs: Any) -> httpx.Response:
+    """One async exchange recorded like an Insights call. Transport errors are recorded, then re-raised.
+    record=False keeps routine successes out of the ring; record_errors=False does the same for failures."""
     t0 = time.monotonic()
     path = urlsplit(url).path or "/"
     params = kwargs.get("params")
     try:
         resp = await client.request(method, url, **kwargs)
     except httpx.HTTPError as e:
-        api_trace.record(target=target, method=method, path=path, params=params, url=url, entity=entity,
-                         ms=(time.monotonic() - t0) * 1000, error=f"{type(e).__name__}: {e}")
+        if record or record_errors:
+            api_trace.record(target=target, method=method, path=path, params=params, url=url, entity=entity,
+                             ms=(time.monotonic() - t0) * 1000, error=f"{type(e).__name__}: {e}")
         raise
-    if record or resp.is_error:
+    if record or (resp.is_error and record_errors):
         api_trace.record(target=target, method=method, path=path, params=params, url=url, entity=entity,
                          status=resp.status_code, content_type=resp.headers.get("content-type"),
                          ms=(time.monotonic() - t0) * 1000, text=resp.text)

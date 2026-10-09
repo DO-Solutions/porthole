@@ -26,7 +26,8 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcess
 
 EXCLUDED_URLS = "healthz,/events,/static/,favicon"
 KEPT_ATTRIBUTES = ("http.method", "http.request.method", "http.route", "http.status_code",
-                   "http.response.status_code", "url.path", "http.target", "server.address", "net.peer.name",
+                   "http.response.status_code", "url.path", "url.full", "http.url", "http.target", "server.address",
+                   "net.peer.name",
                    "porthole.target", "porthole.caller", "scenario.name", "scenario.id", "voyage.id", "error.type")
 
 

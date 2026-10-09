@@ -12,6 +12,13 @@ from porthole.security import CSP, RateLimiter, client_ip
 # every mutating route of design section 4.2, with a body that is valid apart from the key
 MUTATING = [
     ("/api/captain/check", None),
+    ("/api/scenarios/start", {"target": "tentacle-1", "scenario": "cpu", "params": {}}),
+    ("/api/scenarios/stop", {"target": "tentacle-1", "run_id": "cpu-00000000"}),
+    ("/api/voyages/start", {"voyage": "chain", "params": {}}),
+    ("/api/voyages/v-000000/abort", None),
+    ("/api/insights/promql", {"region": "tor1", "query": "sum(do.droplets.load_1)"}),
+    ("/api/insights/logs/search", {"region": "tor1"}),
+    ("/api/insights/rules/00000000-0000-0000-0000-0000000000a1/status", {"status": "paused"}),
 ]
 
 
@@ -38,6 +45,14 @@ async def test_mutating_routes_return_503_without_a_configured_key(path, body):
             r = await e.client.post(path, json=body, headers=e.captain())
             assert r.status_code == 503, r.text
             assert r.json()["error"]["code"] == "captain_not_configured"
+
+
+@pytest.mark.parametrize("path,body", MUTATING)
+async def test_mutating_routes_are_rate_limited(env, path, body):
+    for _ in range(12):
+        await env.client.post(path, json=body)
+    r = await env.client.post(path, json=body, headers=env.captain())
+    assert r.status_code == 429 and int(r.headers["Retry-After"]) >= 1
 
 
 async def test_key_accepted_as_header_or_bearer(env):
@@ -137,4 +152,7 @@ async def test_body_cap_while_streaming(env):
 
     r = await env.client.post("/hooks/insights", content=chunks(),
                               headers={"Authorization": "Bearer x", "Content-Type": "application/json"})
-    assert r.status_code in (413, 404)  # 404 until the webhook route exists (M3)
+    assert r.status_code == 413
+    r = await env.client.post("/api/scenarios/start", content=b"{" + b" " * (64 * 1024) + b"}",
+                              headers={**env.captain(), "Content-Type": "application/json"})
+    assert r.status_code == 413
