@@ -1,0 +1,11 @@
+# Tentacle runtime (Python 3.12). Verified 2026-10-08: installs and passes tests on 3.13; all wheels
+# resolve for cp312 manylinux x86_64 (pip download --only-binary=:all: --python-version 3.12).
+fastapi==0.143.0
+uvicorn==0.54.0
+httpx==0.28.1
+opentelemetry-api==1.45.1
+opentelemetry-sdk==1.45.1
+opentelemetry-exporter-otlp-proto-http==1.45.1
+opentelemetry-instrumentation-fastapi==0.66b1
+opentelemetry-instrumentation-httpx==0.66b1
+psycopg[binary]==3.3.6

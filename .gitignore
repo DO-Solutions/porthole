@@ -1,0 +1,13 @@
+# local state and secrets never leave the machine
+infra/out/
+head/.env
+.env
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+# uPlot download marker (make vendor writes it when there is no network)
+head/static/vendor/.pending
+head/static/vendor/uplot/.pending

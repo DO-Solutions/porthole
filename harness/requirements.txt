@@ -1,0 +1,2 @@
+# Harness runtime: httpx only.
+httpx==0.28.1

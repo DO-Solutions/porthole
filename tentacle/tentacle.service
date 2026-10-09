@@ -1,0 +1,22 @@
+[Unit]
+Description=Tentacle scenario service (Insights demo)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tentacle
+Group=tentacle
+EnvironmentFile=/etc/tentacle/env
+WorkingDirectory=/opt/tentacle
+ExecStart=/opt/tentacle/venv/bin/python /opt/tentacle/tentacle.py
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+LimitNOFILE=65536
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

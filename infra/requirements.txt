@@ -1,0 +1,2 @@
+# Provisioning runtime: the DigitalOcean API client is plain httpx.
+httpx==0.28.1

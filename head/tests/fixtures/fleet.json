@@ -1,0 +1,41 @@
+{
+  "project": "insights-demo",
+  "regions": ["tor1", "syd1"],
+  "tentacles": [
+    {"name": "kraken-tentacle-1", "display": "tentacle-1", "region": "tor1", "url": "http://203.0.113.10:8800",
+     "id": 600000001, "urn": "do:droplet:600000001", "service_name": "kraken-tentacle-1", "peer": "kraken-tentacle-2", "slot": 1},
+    {"name": "kraken-tentacle-2", "display": "tentacle-2", "region": "tor1", "url": "http://203.0.113.11:8800",
+     "id": 600000002, "urn": "do:droplet:600000002", "service_name": "kraken-tentacle-2", "peer": "kraken-tentacle-1", "slot": 2},
+    {"name": "kraken-tentacle-3", "display": "tentacle-3", "region": "syd1", "url": "http://203.0.113.12:8800",
+     "id": 600000003, "urn": "do:droplet:600000003", "service_name": "kraken-tentacle-3", "peer": null, "slot": 3}
+  ],
+  "head": {"app_id": "00000000-0000-0000-0000-000000000000", "urn": "do:app:00000000-0000-0000-0000-000000000000",
+           "region": "tor1", "service_name": "porthole", "slot": 5},
+  "sea": {
+    "load_balancer": {"name": "kraken-lb", "id": "00000000-0000-0000-0000-000000000001", "ip": "203.0.113.20",
+                      "region": "tor1", "urn": "do:loadbalancer:00000000-0000-0000-0000-000000000001", "slot": 4},
+    "database": {"name": "kraken-pg", "id": "00000000-0000-0000-0000-000000000002", "region": "tor1",
+                 "urn": "do:dbaas:00000000-0000-0000-0000-000000000002", "engine": "pg", "slot": 6},
+    "kubernetes": {"name": "kraken-doks", "id": "00000000-0000-0000-0000-000000000003", "region": "tor1",
+                   "urn": "do:kubernetes:00000000-0000-0000-0000-000000000003", "slot": 7},
+    "functions": {"name": "kraken", "namespace_id": "fn-00000000-0000-0000-0000-000000000004",
+                  "url": "https://faas-tor1-00000000.doserverless.co/api/v1/web/fn-00000000-0000-0000-0000-000000000004/kraken/ping",
+                  "region": "tor1", "slot": 8},
+    "spaces": {"name": "kraken-a1b2c3", "region": "tor1"},
+    "registry": {"name": "kraken", "created": false},
+    "agent": {"kind": "harness-runtime", "name": "kraken-brain", "region": "tor1"}
+  },
+  "watcher": {
+    "rules": [
+      {"id": "00000000-0000-0000-0000-0000000000a1", "purpose": "round-trip", "name": "kraken churn", "target": "kraken-tentacle-1"},
+      {"id": "00000000-0000-0000-0000-0000000000a2", "purpose": "operator-gt-5m", "name": "kraken load above 1.5", "target": "kraken-tentacle-2"},
+      {"id": "00000000-0000-0000-0000-0000000000a3", "purpose": "operator-lte-10m", "name": "kraken memory available at or below 250 MiB", "target": "kraken-tentacle-1"},
+      {"id": "00000000-0000-0000-0000-0000000000a4", "purpose": "operator-lt-15m", "name": "kraken free disk below 16 GiB", "target": "kraken-tentacle-2"},
+      {"id": "00000000-0000-0000-0000-0000000000a5", "purpose": "operator-eq-30m", "name": "kraken 15-minute load exactly zero", "target": "kraken-tentacle-3"},
+      {"id": "00000000-0000-0000-0000-0000000000a6", "purpose": "operator-ne-1h", "name": "kraken load not zero", "target": "kraken-tentacle-3"}
+    ],
+    "channel_webhook_id": "00000000-0000-0000-0000-0000000000c1",
+    "channel_email_id": "00000000-0000-0000-0000-0000000000c2",
+    "dashboard": "krakens-eye"
+  }
+}

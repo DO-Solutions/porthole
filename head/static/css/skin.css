@@ -1,0 +1,32 @@
+/* The kraken skin as CSS custom properties, written by hand from watcher/skin/kraken.skin.json.
+   head/tests/test_static.py keeps the two equal. Dark surface only. */
+
+@font-face {
+  font-family: 'Special Gothic';
+  src: url('/static/fonts/SpecialGothic-400.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Special Gothic';
+  src: url('/static/fonts/SpecialGothic-500.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --bg: #000f0f; --card: #081f1e; --line: #1f403e; --ink: #e5eceb; --dim: #6f908c;
+  --accent: #1aafbf; --gold: #deab4f;
+  --fleet-1: #30cbd9; --fleet-2: #b17ea4; --fleet-3: #e2b658; --fleet-4: #5a9c63;
+  --fleet-5: #5198fb; --fleet-6: #d8907e; --fleet-7: #9ba3a4; --fleet-8: #a6b559;
+  --grid-minor: #e5eceb0f; --grid-major: #e5eceb1f; --axis-label: #9db5b266;
+  --font: 'Special Gothic', 'Helvetica Neue', Arial, sans-serif;
+
+  /* not in the skin file: the reserved failure red (design section 5.2) and two sea tones */
+  --fail: #d85a5a;
+  --sea-bottom: #000a0a;
+  --frame: #325553;
+}

@@ -1,0 +1,74 @@
+{
+ "name": "kraken",
+ "fleet": [
+  "#30cbd9",
+  "#b17ea4",
+  "#e2b658",
+  "#5a9c63",
+  "#5198fb",
+  "#d8907e",
+  "#9ba3a4",
+  "#a6b559"
+ ],
+ "ui": {
+  "bg": "#000f0f",
+  "card": "#081f1e",
+  "line": "#1f403e",
+  "ink": "#e5eceb",
+  "dim": "#6f908c",
+  "accent": "#1aafbf",
+  "font": "'Special Gothic', 'Helvetica Neue', Arial, sans-serif"
+ },
+ "sea": {
+  "top": "#081f1e",
+  "bottom": "#000a0a",
+  "gridMinor": "#e5eceb0f",
+  "gridMajor": "#e5eceb1f",
+  "label": "#9db5b266"
+ },
+ "land": {
+  "fill": "#3d401f",
+  "halo": "#58421d21",
+  "coast": {
+   "sand": "#b0843a",
+   "shallow": "#104b5554",
+   "smooth": 2
+  }
+ },
+ "nodes": {
+  "fish": "#4d716e8c",
+  "wreck": "#84632c80",
+  "label": "#9db5b2ab"
+ },
+ "ships": {
+  "hullInk": "#000f0f",
+  "detail": "#e5eceb",
+  "laden": "#deab4f",
+  "ghost": "#6f908c66"
+ },
+ "fx": {
+  "fog": "#000a0a99",
+  "flagSunk": {
+   "ttlS": 8,
+   "scale": 1.25
+  },
+  "region": {
+   "ttlS": 5,
+   "alpha": 0.16
+  },
+  "parley": {
+   "enabled": true,
+   "color": "#1aafbf",
+   "width": 1.5,
+   "ttlS": 3
+  },
+  "edgeArrow": {
+   "color": "#1aafbf"
+  }
+ },
+ "minimap": {
+  "bg": "#000f0f",
+  "frame": "#325553",
+  "cursor": "#30cbd9"
+ }
+}

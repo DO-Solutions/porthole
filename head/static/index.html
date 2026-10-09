@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Porthole: Bridge</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/skin.css">
+  <link rel="stylesheet" href="/static/vendor/uplot/uPlot.min.css">
+  <link rel="stylesheet" href="/static/css/porthole.css">
+  <script src="/static/vendor/uplot/uPlot.iife.min.js" defer></script>
+  <script type="module" src="/static/js/pages/bridge.js"></script>
+</head>
+<body>
+  <header id="frame-top"></header>
+  <main>
+    <section class="card span-4" aria-labelledby="intro-title">
+      <h1 id="intro-title">What you're looking at</h1>
+      <p class="explainer">Porthole is a window onto DigitalOcean Insights. The kraken outside is a small fleet we run for this demo: three Droplets called tentacles (two in Toronto, one in Sydney), a load balancer, a managed Postgres, a one-node Kubernetes cluster, a Function, a Spaces bucket, a container registry and a Managed Agents session. You can make the fleet do things, then see what Insights records about it through the same API you would use. Every number on this page came from an Insights API call; the calls are listed in the drawer at the bottom.</p>
+      <div class="cta">
+        <a class="button" href="/stir">Stir the water</a>
+        <a class="button" href="/metrics">See what Insights sees</a>
+        <a class="button" href="/api">Watch the API</a>
+      </div>
+    </section>
+    <section class="card span-4" aria-labelledby="fleet-title">
+      <div class="card-head"><h2 id="fleet-title">The fleet</h2><span class="small dim" id="fleet-checked"></span></div>
+      <ul class="fleet-list" id="fleet-tentacles"><li class="empty">loading the fleet...</li></ul>
+      <div class="fleet-sea" id="fleet-sea"></div>
+      <p class="small dim">A filled dot means Insights returned a sample for that resource in the last 5 minutes.</p>
+    </section>
+    <section class="card span-4" aria-labelledby="self-title">
+      <div class="card-head"><h2 id="self-title">This page is monitored</h2><span class="small dim" id="self-metric"></span></div>
+      <div class="chart sparkline" id="self-chart"></div>
+      <p><span class="big-number" id="self-value"></span> <span class="dim">requests per second</span></p>
+      <p class="small dim">You are generating these requests right now.</p>
+      <p class="small"><a id="self-link" href="#">Open this app in the control panel</a></p>
+    </section>
+    <section class="card span-12" aria-labelledby="water-title">
+      <div class="card-head">
+        <h2 id="water-title">The water</h2>
+        <span class="small dim" id="water-promql"></span>
+      </div>
+      <div class="chart" id="water-chart"></div>
+      <div class="card-actions" id="water-actions"></div>
+    </section>
+  </main>
+  <footer id="frame-drawer"></footer>
+</body>
+</html>

@@ -1,0 +1,20 @@
+# Lint settings for the whole repo. harness/ and tentacle/ are carried over unchanged, so the few rules they
+# trip are ignored for those files only; everything else is checked everywhere.
+line-length = 120
+target-version = "py312"
+extend-exclude = ["infra/out", "head/static"]
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["UP017"]  # the code uses timezone.utc, as the build brief writes it
+
+[lint.per-file-ignores]
+"harness/**" = ["E501", "E731", "E741", "UP031", "UP035", "UP037", "B905"]
+"tentacle/**" = ["E501", "E731", "E741", "UP031", "UP035", "UP037", "B905"]
+
+[lint.isort]
+known-first-party = ["porthole", "insights_harness", "fake_insights", "fake_tentacles", "fake_promql", "fake_store",
+                     "fake_logs", "doapi", "state", "provision", "teardown", "fleet", "steps"]
+
+[lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Body", "fastapi.Header"]
