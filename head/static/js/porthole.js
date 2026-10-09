@@ -212,8 +212,9 @@ export function renderTimeline(container, run) {
       ? el("a", { href: `/metrics?metric=${encodeURIComponent(a.ref)}${a.region ? `&region=${a.region}` : ""}` }, "see chart")
       : a.kind === "api_call" ? el("a", { href: `/api?call=${encodeURIComponent(a.ref)}` }, "API call")
         : a.kind === "delivery" ? el("a", { href: "/alerts" }, "delivery") : el("span", { class: "small dim" }, a.ref));
+    const took = step.duration_s === null || step.duration_s === undefined ? "" : ` (${Math.round(step.duration_s)} s)`;
     list.append(el("li", { class: step.status }, el("span", { class: `status ${step.status}` }, step.status.replace("_", " ")),
-      el("span", { class: "dim" }, fmtTime(step.started_at)), el("span", {}, step.name),
+      el("span", { class: "dim" }, `${fmtTime(step.started_at)}${took}`), el("span", {}, step.name),
       el("span", { class: "text" }, step.text || step.title || ""), el("span", { class: "row" }, links)));
   }
   container.append(list);

@@ -71,6 +71,7 @@ input:disabled, select:disabled, textarea:disabled, textarea[readonly] { color: 
 .row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .row.spread { justify-content: space-between; }
 .needs-key { color: var(--gold); font-size: 0.8rem; }
+button[data-needs-key]:disabled::after { content: " (needs the captain's key)"; font-size: 0.78em; }
 
 /* --- page grid and cards ------------------------------------------------------------------ */
 main { padding: 1rem 1.2rem; display: grid; gap: 1rem; grid-template-columns: repeat(12, minmax(0, 1fr)); }
