@@ -18,6 +18,10 @@ class BudgetExhausted(Exception):
         self.retry_in = retry_in
 
 
+class _LeaderCancelled(Exception):
+    """The caller that was fetching a key got cancelled; the callers waiting on it fetch for themselves."""
+
+
 class Budget:
     """Sliding one-minute window of upstream calls; take() is called from the harness worker threads."""
 
@@ -88,7 +92,11 @@ class PanelCache:
             return CacheResult(entry.value, True, False, None, entry.fetched_at)
         pending = self._inflight.get(key)
         if pending is not None:
-            result: CacheResult[T] = await asyncio.shield(pending)
+            try:
+                result: CacheResult[T] = await asyncio.shield(pending)
+            except _LeaderCancelled:
+                # The first caller was cancelled (its request or task went away), not us: fetch on our own.
+                return await self.get(key, fetch, ttl)
             return CacheResult(result.value, True, result.stale, result.retry_in, result.fetched_at)
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._inflight[key] = future
@@ -108,7 +116,8 @@ class PanelCache:
             future.set_result(result)
             return result
         except BaseException as e:
-            future.set_exception(e)
+            # Our own cancellation must not cancel the callers sharing this fetch; they retry for themselves.
+            future.set_exception(_LeaderCancelled() if isinstance(e, asyncio.CancelledError) else e)
             future.exception()  # mark retrieved so an unawaited future does not warn
             raise
         finally:

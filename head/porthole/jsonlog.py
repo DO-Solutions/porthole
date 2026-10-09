@@ -37,9 +37,6 @@ class JsonLog:
         self._now = now or _now_iso
         self._lock = threading.Lock()
 
-    def set_secrets(self, secrets: Iterable[str]) -> None:
-        self._secrets = [s for s in secrets if s and len(s) >= 6]
-
     def __call__(self, severity: str, body: str, **attrs: Any) -> dict | None:
         number = SEVERITY[severity]
         if number < self.level:

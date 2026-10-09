@@ -105,6 +105,3 @@ class DeepLinks:
                 if key.startswith("insights."):
                     out[key]["by_region"] = {r: self.link(key, region=r)["url"] for r in regions}
         return out
-
-    def entities(self) -> dict:
-        return {e.name: self.for_entity(e) for e in self.fleet.entities()}

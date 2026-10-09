@@ -104,6 +104,36 @@ async def test_abort_stops_what_the_voyage_started(env):
     assert env.deps.voyages.active is None
 
 
+async def test_a_second_abort_during_cleanup_does_not_lock_the_engine(env, monkeypatch):
+    """Found by the wringer: a second abort while the first one's cleanup was still stopping the burn cancelled
+    the cleanup itself, so the run never ended, the engine stayed on 'one at a time' and the burn kept going."""
+    import asyncio
+
+    from porthole.tentacles import TentacleClient
+    run = await sail(env, "churn")
+    assert await env.run_until(lambda: run.step("metric-appears").status == "running", 300)
+    real_stop = TentacleClient.stop
+
+    async def slow_stop(self, run_id):  # a real tentacle joins the scenario thread for up to 10 s
+        await env.clock.sleep(5)
+        return await real_stop(self, run_id)
+
+    monkeypatch.setattr(TentacleClient, "stop", slow_stop)
+    first = asyncio.create_task(env.client.post(f"/api/voyages/{run.id}/abort", headers=env.captain()))
+    await env.settle()
+    assert run.status == "aborted" and not run.task.done()  # cleanup is waiting on the slow stop
+    second = asyncio.create_task(env.client.post(f"/api/voyages/{run.id}/abort", headers=env.captain()))
+    await env.settle()
+    await env.advance(10)
+    assert (await first).status_code == 200 and (await second).status_code == 200
+    assert run.task.done() and not run.task.cancelled() and run.ended_at is not None
+    assert env.deps.voyages.active is None
+    cpu = env.fleet.by_name("kraken-tentacle-1").runs[run.scenarios_started[0]["run_id"]]
+    assert cpu.status == "stopped"
+    assert (await env.client.post("/api/voyages/start", json={"voyage": "chain"},
+                                  headers=env.captain())).status_code == 202
+
+
 async def test_only_one_voyage_sails(env):
     run = await sail(env, "chain")
     r = await env.client.post("/api/voyages/start", json={"voyage": "churn"}, headers=env.captain())

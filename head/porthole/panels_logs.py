@@ -87,7 +87,13 @@ class LogPanels:
             raise ApiError(400, "bad_severity", f"severity must be one of {list(SEVERITY_MIN)}")
         if not 1 <= limit <= 100:
             raise ApiError(400, "bad_limit", "limit must be 1 to 100 (the captain's search allows 1,000)")
-        if cursor and start is not None and end is not None and 0 < end - start <= promql.MAX_RANGE_S:
+        if cursor and (start is not None or end is not None):
+            # A cursor only means something inside the window of the page it came from, so the page sends that
+            # window back; anything that is not a plausible window is a client error, not a server crash.
+            latest = int(self.now().timestamp()) + 86400
+            if start is None or end is None or not 0 <= start < end <= latest or end - start > promql.MAX_RANGE_S:
+                raise ApiError(400, "bad_window", "start and end must be unix seconds of the page's own window, at "
+                                                  "most 24 h apart and not in the future")
             t0, t1 = datetime.fromtimestamp(start, timezone.utc), datetime.fromtimestamp(end, timezone.utc)
         else:
             now = self.now().replace(microsecond=0)

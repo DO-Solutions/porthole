@@ -54,7 +54,7 @@ def build_config(deps: Any) -> dict:
         "slots": {e.name: e.slot for e in fleet.entities() if e.slot},
         "palette": slot_palette(deps.watcher_dir),
         "features": {"write": s.insights_write, "brain": s.brain, "captain_configured": s.captain_configured,
-                     "insights_configured": bool(s.token), "hook_auth": hook_auth,
+                     "insights_configured": s.insights_configured, "hook_auth": hook_auth,
                      "hook_signature": bool(s.hook_secret), "otlp": deps.telemetry.describe()},
         "links": links.public(),
         "caps": caps(deps),

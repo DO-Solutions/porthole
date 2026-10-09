@@ -15,6 +15,7 @@ from porthole.clock import iso
 from porthole.config import TentacleSpec
 
 POLL_S = 10.0
+ERROR_RECORD_EVERY_S = 60.0
 
 
 class TentacleError(Exception):
@@ -28,14 +29,15 @@ class TentacleClient:
         self.spec, self.http, self.key, self.trace = spec, http, key, trace
 
     async def _call(self, method: str, path: str, params: dict | None = None, record: bool = True,
-                    timeout: float | None = None) -> Any:
+                    timeout: float | None = None, record_errors: bool = True) -> Any:
         headers = {"Authorization": f"Bearer {self.key}"} if method != "GET" and self.key else {}
         kwargs: dict[str, Any] = {"headers": headers, "params": params}
         if timeout is not None:
             kwargs["timeout"] = timeout
         try:
             resp = await traced_request(self.http, self.trace, target="tentacle", method=method,
-                                        url=f"{self.spec.url}{path}", entity=self.spec.name, record=record, **kwargs)
+                                        url=f"{self.spec.url}{path}", entity=self.spec.name, record=record,
+                                        record_errors=record_errors, **kwargs)
         except httpx.HTTPError as e:
             raise TentacleError(502, f"{self.spec.display} is unreachable: {type(e).__name__}") from e
         try:
@@ -48,11 +50,11 @@ class TentacleClient:
                                 detail)
         return body
 
-    async def health(self, record: bool = False) -> dict:
-        return await self._call("GET", "/health", record=record, timeout=5)
+    async def health(self, record: bool = False, record_errors: bool = True) -> dict:
+        return await self._call("GET", "/health", record=record, timeout=5, record_errors=record_errors)
 
-    async def scenarios(self, record: bool = False) -> dict:
-        return await self._call("GET", "/scenarios", record=record, timeout=5)
+    async def scenarios(self, record: bool = False, record_errors: bool = True) -> dict:
+        return await self._call("GET", "/scenarios", record=record, timeout=5, record_errors=record_errors)
 
     async def start(self, name: str, params: dict) -> dict:
         return await self._call("POST", f"/scenario/{name}", params=params)
@@ -72,6 +74,9 @@ class FleetPoller:
         self.listings: dict[str, dict] = {}
         self.polled_at: float | None = None
         self._lock = asyncio.Lock()
+        # when each unreachable tentacle last had a failed poll written to the API trace; the first failure is
+        # recorded, then one a minute, so a tentacle that is down for an hour does not fill the ring by itself
+        self._error_recorded_at: dict[str, float] = {}
 
     def client(self, name: str) -> TentacleClient | None:
         t = self.fleet.tentacle(name)
@@ -89,11 +94,18 @@ class FleetPoller:
 
     async def _poll_tentacle(self, t: TentacleSpec) -> dict:
         client = self.clients[t.name]
+        now = self.deps.clock.monotonic()
+        last = self._error_recorded_at.get(t.name)
+        record_errors = last is None or now - last >= ERROR_RECORD_EVERY_S
         with caller("poller"):
             try:
-                health, listing = await asyncio.gather(client.health(), client.scenarios())
+                health, listing = await asyncio.gather(client.health(record_errors=record_errors),
+                                                       client.scenarios(record_errors=False))
             except TentacleError as e:
+                if record_errors:
+                    self._error_recorded_at[t.name] = now
                 return {"reachable": False, "error": e.message, "health": None, "listing": None}
+        self._error_recorded_at.pop(t.name, None)
         return {"reachable": True, "error": None, "health": health, "listing": listing}
 
     async def poll_once(self) -> dict:

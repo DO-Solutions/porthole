@@ -72,6 +72,32 @@ async def test_single_flight_for_concurrent_misses(env):
     assert upstream(env, "query_range") == n + 1
 
 
+async def test_cache_waiters_survive_the_first_callers_cancellation():
+    """Found by the wringer: cancelling the request that started a fetch cancelled every request sharing it."""
+    from porthole.cache import PanelCache
+    cache = PanelCache(lambda: 0.0, lambda: "now")
+    gate = asyncio.Event()
+    fetches = 0
+
+    async def fetch() -> dict:
+        nonlocal fetches
+        fetches += 1
+        await gate.wait()
+        return {"v": fetches}
+
+    leader = asyncio.create_task(cache.get("k", fetch, 20))
+    await asyncio.sleep(0)
+    follower = asyncio.create_task(cache.get("k", fetch, 20))
+    await asyncio.sleep(0)
+    leader.cancel()
+    await asyncio.sleep(0)
+    gate.set()
+    result = await asyncio.wait_for(follower, 2)
+    assert result.value == {"v": 2} and result.cached is False and fetches == 2
+    assert leader.cancelled()
+    assert (await cache.get("k", fetch, 20)).cached is True  # the follower's fetch filled the cache
+
+
 async def test_budget_exhaustion_serves_stale_with_retry_in():
     async with AppEnv(base_env(PORTHOLE_UPSTREAM_BUDGET_PER_MIN="6")) as e:
         fresh = (await e.client.get("/api/insights/range", params=range_params(range="1h"))).json()
@@ -152,9 +178,14 @@ async def test_logs_page_and_rules(env):
         "start": body["window"]["start"], "end": body["window"]["end"]})).json()
     assert more["records"][0]["timestamp"] <= body["records"][-1]["timestamp"]
     for params, code in (({"region": "both"}, "one_region"), ({"service": "someone-else"}, "bad_service"),
-                         ({"severity": "LOUD"}, "bad_severity"), ({"limit": 101}, "bad_limit")):
+                         ({"severity": "LOUD"}, "bad_severity"), ({"limit": 101}, "bad_limit"),
+                         # found by the wringer: these answered 500 (ValueError from fromtimestamp)
+                         ({"cursor": "x", "start": 99999999999990, "end": 99999999999999}, "bad_window"),
+                         ({"cursor": "x", "start": -5, "end": 50}, "bad_window"),
+                         ({"cursor": "x", "start": body["window"]["start"]}, "bad_window"),
+                         ({"cursor": "x", "start": 0, "end": 90000}, "bad_window")):
         r = await env.client.get("/api/insights/logs", params={"region": "tor1", **params})
-        assert r.status_code == 400 and r.json()["error"]["code"] == code
+        assert r.status_code == 400 and r.json()["error"]["code"] == code, params
 
 
 async def test_expected_logs_say_a6b_when_insights_has_none(env):
@@ -208,6 +239,24 @@ async def test_fleet_snapshot_shape(env):
     snap = (await env.client.get("/api/fleet")).json()
     t2 = snap["tentacles"][1]
     assert t2["reachable"] is False and "unreachable" in t2["error"]
+
+
+async def test_a_dead_tentacle_does_not_flood_the_api_trace(env):
+    """Found by the wringer: every 10 s poll of an unreachable tentacle wrote two error records, 120 in ten
+    minutes, so one dead box filled the 500-entry ring and every browser's drawer with tentacle noise."""
+    env.fleet.by_name("kraken-tentacle-2").unreachable = True
+    await env.advance(600)
+    errors = [c for c in env.deps.trace.ring if c.target == "tentacle" and c.error]
+    assert 1 <= len(errors) <= 11  # the first failure, then at most one a minute
+    assert all(c.entity == "kraken-tentacle-2" and c.path == "/health" for c in errors)
+    snap = (await env.client.get("/api/fleet")).json()
+    assert snap["tentacles"][1]["reachable"] is False  # the snapshot still says so every cycle
+    env.fleet.by_name("kraken-tentacle-2").unreachable = False
+    await env.advance(20)
+    assert (await env.client.get("/api/fleet")).json()["tentacles"][1]["reachable"] is True
+    env.fleet.by_name("kraken-tentacle-2").unreachable = True
+    await env.advance(15)
+    assert len([c for c in env.deps.trace.ring if c.target == "tentacle" and c.error]) == len(errors) + 1  # anew
 
 
 async def test_insights_not_configured():

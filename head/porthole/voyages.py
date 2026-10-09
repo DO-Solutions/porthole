@@ -230,11 +230,15 @@ class VoyageContext:
                      if r.get("id") == run_id), None)
 
     async def cleanup(self) -> None:
+        """Stop every scenario the voyage started. A cancellation that lands here (a second abort, or shutdown)
+        is noted and the loop goes on, so one interrupted stop never leaves the others running."""
         for started in self.run.scenarios_started:
             try:
                 view = await self.run_view(started["target"], started["run_id"])
                 if view and view.get("status") == "running":
                     await self.stop(started["target"], started["run_id"])
+            except asyncio.CancelledError:
+                self.deps.log.warn(f"voyage cleanup interrupted while stopping {started['run_id']}; going on")
             except Exception as e:  # cleanup must reach every scenario
                 self.deps.log.warn(f"voyage cleanup could not stop {started['run_id']}: {e}")
 
@@ -317,26 +321,37 @@ class VoyageEngine:
                 run.status, run.error = "failed", f"{type(e).__name__}: {e}"
                 self.deps.log.error(f"voyage {run.voyage} crashed: {run.error}", run_id=run.id)
             finally:
+                # From here on the run is ending: abort() and close() no longer cancel it, and a cancellation
+                # that still arrives (one was already in flight) must not skip the bookkeeping below, or the
+                # engine would stay locked on a run that never ends.
                 for rec in run.steps:
                     if rec.status == "running":
                         rec.status, rec.ended_at = ("failed" if run.status != "aborted" else "skipped"), ctx.now()
                     if rec.status == "planned":
                         rec.status, rec.text = "skipped", rec.text or "not reached"
-                await ctx.cleanup()
+                try:
+                    await ctx.cleanup()
+                except asyncio.CancelledError:
+                    self.deps.log.warn(f"voyage {run.voyage} cleanup was cancelled", run_id=run.id)
                 run.ended_at = ctx.now()
                 self.active = None
                 self.deps.log.info(f"voyage {run.voyage} ended: {run.status}", run_id=run.id)
                 self.publish(run)
 
     async def abort(self, run_id: str, actor: str = "captain") -> VoyageRun:
+        """Cancel a sailing voyage and wait for its cleanup. A run that is already ending (a second abort while
+        the first one's cleanup is still stopping scenarios) is only waited for, never cancelled again."""
         run = self.get(run_id)
         if run.task is not None and not run.task.done():
-            run.error = f"aborted by {actor}"
-            run.task.cancel()
+            if run.status == "sailing":
+                run.error = f"aborted by {actor}"
+                run.task.cancel()
             await asyncio.gather(run.task, return_exceptions=True)
         return run
 
     async def close(self) -> None:
-        if self.active is not None and self.active.task is not None:
-            self.active.task.cancel()
-            await asyncio.gather(self.active.task, return_exceptions=True)
+        run = self.active
+        if run is not None and run.task is not None and not run.task.done():
+            if run.status == "sailing":
+                run.task.cancel()
+            await asyncio.gather(run.task, return_exceptions=True)
