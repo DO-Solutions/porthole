@@ -6,14 +6,14 @@ design could not confirm a fact; they move to open once someone observes the beh
 wontfix. Never write an observation nobody made.
 
 ```
-## B-000  Alert webhook carries no signature header     (resolved 2026-10-09)
+## B-000  Alert webhook carries no signature header     (open)
 - when: 2026-10-12T14:03:11Z   where: head /hooks/insights   finding: A14 follow-up
 - request we made / received: POST /hooks/insights, headers [user-agent, content-type, authorization(Bearer), x-kraken], 1,212 bytes
 - response: 200
 - expected: a signature header, per "Sign webhook payload" in manage-metrics-alerts (quote)
 - observed: no header containing sign/signature/hmac/digest; body excerpt {...}
 - reproduce: run voyage alert-round-trip; harness: `insights_harness.py channels get <id>`
-- status: resolved 2026-10-09T04:12Z by the first real delivery: header `x-digitalocean-signature` with the Stripe form `t=<unix>,v1=<hex>` (HMAC-SHA256 over `"<t>.<raw body>"` with the channel secret); the head's `stripe-v1` scheme verified it. Also present: `digitalocean-event-name: observability.alert.triggered`, `Content-Type: application/cloudevents+json`. Undocumented; reported as a docs gap.
+- status: open -> reported -> fixed / wontfix
 ```
 
 ## B-001  Insights tab URLs are not documented     (verified)
@@ -43,14 +43,14 @@ wontfix. Never write an observation nobody made.
 - reproduce: open the Bridge with the real fleet, then `/api/fleet` and look at `probe_mode`
 - status: to verify
 
-## B-004  Webhook payload schema and signature header     (to verify)
+## B-004  Webhook payload schema and signature header     (resolved 2026-10-09)
 - when: 2026-10-09 (build)   where: head `/hooks/insights`   finding: A14
 - request we made / received: none yet; the docs say a webhook channel can sign payloads but name no header or algorithm
 - response: n/a
 - expected: a documented payload and a signature header with a named scheme
 - observed: not observed yet. The receiver tries hex and base64 HMAC-SHA256, `sha256=` and `sha1=` prefixes, Stripe-style `t=,v1=`, Standard Webhooks, and HMAC-SHA512 on every header whose name contains signature, sign, hmac or digest, and records `fields_found` from the body
 - reproduce: run the Alert round trip voyage; read the delivery on the Alerts page (headers, signature verdict, body)
-- status: to verify
+- status: resolved 2026-10-09T04:12Z by the first real delivery (see B-027 for the payload): header `x-digitalocean-signature` in the Stripe form `t=<unix>,v1=<hex>`, HMAC-SHA256 over `"<t>.<raw body>"` with the channel secret; the head's `stripe-v1` scheme verified it. Also `digitalocean-event-name: observability.alert.triggered` and `Content-Type: application/cloudevents+json`. Undocumented; a docs gap.
 
 ## B-005  How App Platform traces and logs reach Insights     (to verify)
 - when: 2026-10-09 (build)   where: head `porthole/telemetry.py`, Traces and Logs pages   finding: A6
