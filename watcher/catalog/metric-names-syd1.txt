@@ -1,0 +1,29 @@
+# Metric names Insights listed for syd1 on 2026-10-09: 26 names over a 24-hour window, from
+# GET /v2/insights/query/syd1/prom/api/v1/label/__name__/values?start=&end=
+# One name per line, sorted. scripts/check_metric_names.py and the head read every metric-names-*.txt here.
+do_droplets_cpu_time
+do_droplets_cpu_utilization
+do_droplets_disk_read
+do_droplets_disk_sectors_read
+do_droplets_disk_sectors_written
+do_droplets_disk_utilization
+do_droplets_disk_write
+do_droplets_filesystem_free
+do_droplets_filesystem_size
+do_droplets_load_avg_15m
+do_droplets_load_avg_1m
+do_droplets_load_avg_5m
+do_droplets_memory_available
+do_droplets_memory_cached
+do_droplets_memory_free
+do_droplets_memory_swap_cached
+do_droplets_memory_swap_free
+do_droplets_memory_swap_total
+do_droplets_memory_total
+do_droplets_memory_utilization
+do_droplets_network_rx
+do_droplets_network_tx
+do_droplets_private_network_rx
+do_droplets_private_network_tx
+do_droplets_public_network_rx
+do_droplets_public_network_tx

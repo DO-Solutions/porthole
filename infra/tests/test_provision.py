@@ -352,3 +352,56 @@ def test_wait_until_gives_up_after_the_timeout() -> None:
 
 def test_porthole_env_passes_the_secret_check(provisioned, out_dir: Path) -> None:
     check_text((out_dir / "porthole.env").read_text(), {})
+
+
+# B-034: the five paused rules were created on names no catalog has, and the lab's rules still carry them.
+OLD_METRICS = {"operator-gt-5m": "do.droplets.load_1",  # not-in-catalog
+               "operator-lte-10m": "do.droplets.memory_available_bytes",  # not-in-catalog
+               "operator-lt-15m": "do.droplets.filesystem_free_bytes",  # not-in-catalog
+               "operator-eq-30m": "do.droplets.load_15",  # not-in-catalog
+               "operator-ne-1h": "do.droplets.load_1"}  # not-in-catalog
+
+
+def test_rules_on_old_metric_names_are_corrected_in_place(provisioned, run, out_dir: Path) -> None:
+    """A rule found by id whose spec differs from its template gets one PUT with the template's spec and keeps
+    its status; a dry run prints the change and sends nothing; the run after that changes nothing."""
+    state = resources(out_dir)
+    ids = {p: state[f"rule:{p}"]["id"] for p in OLD_METRICS}
+    for purpose, metric in OLD_METRICS.items():
+        provisioned.items["insights/alert-rules"][ids[purpose]]["spec"]["query"]["metric"] = metric
+    want = {t["purpose"]: t["spec"]["query"]["metric"] for t in templates()}
+
+    dry = run("provision", "--only", "insights", "--dry-run")
+    assert dry.code == 0, dry.err
+    assert provisioned.mutations() == []
+    rid = ids["operator-gt-5m"]
+    old = OLD_METRICS["operator-gt-5m"]
+    assert (f"would update alert rule kraken load above 1.5 (id {rid}): query.metric {old} -> "
+            f"do.droplets.load_avg_1m (PUT /v2/insights/alert-rules/{rid})") in dry.out
+    assert dry.out.count("would update alert rule") == 5 and "exists alert rule kraken churn" in dry.out
+
+    result = run("provision", "--only", "insights")
+    assert result.code == 0, result.err
+    assert sorted(provisioned.mutations()) == sorted(("PUT", f"/v2/insights/alert-rules/{i}") for i in ids.values())
+    assert result.out.count("updated alert rule") == 5
+    for purpose, rule_id in ids.items():
+        (body,) = provisioned.body("PUT", f"/v2/insights/alert-rules/{rule_id}")
+        assert "status" not in body and body["spec"]["query"]["metric"] == want[purpose]
+        rule = provisioned.items["insights/alert-rules"][rule_id]
+        assert rule["status"] == "ALERT_RULE_STATUS_PAUSED" and rule["spec"]["query"]["metric"] == want[purpose]
+        assert resources(out_dir)[f"rule:{purpose}"]["id"] == rule_id
+
+    provisioned.calls.clear()
+    again = run("provision", "--only", "insights")
+    assert again.code == 0 and provisioned.mutations() == [] and "updated alert rule" not in again.out
+
+
+def test_spec_differences_ignore_fields_the_template_does_not_set() -> None:
+    from steps.insights import differences
+    want = {"query": {"metric": "do.droplets.load_avg_1m"}, "thresholds": {"critical": 1.5},
+            "notification_channels": [{"notification_channel_id": "c"}]}
+    live = {"query": {"metric": "do.droplets.load_avg_1m", "tags": []}, "thresholds": {"critical": 1.5},
+            "notification_channels": [{"notification_channel_id": "c", "notify_on": ["SEVERITY_CRITICAL"]}],
+            "re_alert_duration": "RE_ALERT_DURATION_4H"}
+    assert differences(want, live) == []
+    assert differences({**want, "thresholds": {"critical": 2}}, live) == ["thresholds.critical 1.5 -> 2"]

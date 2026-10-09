@@ -14,11 +14,11 @@ The head reads rules only by id, because the list endpoint omits rules created i
 | purpose | metric | operator | window | status |
 |---|---|---|---|---|
 | round-trip | `do.droplets.cpu_utilization` | `>=` 40 warning, 60 critical | 1m | active |
-| operator-gt-5m | `do.droplets.load_1` | `>` 0.9 / 1.5 | 5m | paused |
-| operator-lte-10m | `do.droplets.memory_available_bytes` | `<=` 250 / 150 MiB | 10m | paused |
-| operator-lt-15m | `do.droplets.filesystem_free_bytes` | `<` 17 / 16 GiB | 15m | paused |
-| operator-eq-30m | `do.droplets.load_15` | `=` 0 | 30m | paused |
-| operator-ne-1h | `do.droplets.load_1` | `!=` 0 | 1h | paused |
+| operator-gt-5m | `do.droplets.load_avg_1m` | `>` 0.9 / 1.5 | 5m | paused |
+| operator-lte-10m | `do.droplets.memory_available` | `<=` 250 / 150 MiB | 10m | paused |
+| operator-lt-15m | `do.droplets.filesystem_free` | `<` 17 / 16 GiB | 15m | paused |
+| operator-eq-30m | `do.droplets.load_avg_15m` | `=` 0 | 30m | paused |
+| operator-ne-1h | `do.droplets.load_avg_1m` | `!=` 0 | 1h | paused |
 
 Only the round-trip rule is active; the Alert round trip voyage burns CPU on its target and times every hop. The
 paused rules cover the remaining operators and windows; resume one (Alerts page, write mode) before a scenario that

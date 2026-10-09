@@ -140,7 +140,7 @@ async def test_budget_exhaustion_serves_stale_with_retry_in():
 
 async def test_captain_promql_within_caps(env):
     h = env.captain()
-    q = {"region": "both", "query": "max by (resource_name) (do.droplets.load_1)", "range": "2h", "step": "60s"}
+    q = {"region": "both", "query": "max by (resource_name) (do.droplets.load_avg_1m)", "range": "2h", "step": "60s"}
     r = await env.client.post("/api/insights/promql", json=q, headers=h)
     assert r.status_code == 200 and set(r.json()["regions"]) == {"tor1", "syd1"} and r.json()["series"]
     for bad in ({**q, "query": "x" * 501}, {**q, "range": "25h"}, {**q, "step": "30s"}):
@@ -160,7 +160,7 @@ async def test_labels_need_a_metric(env):
     r = await env.client.get("/api/insights/labels", params={"region": "tor1", "name": "filesystem_mountpoint"})
     assert r.status_code == 400
     r = await env.client.get("/api/insights/labels", params={"region": "tor1", "name": "filesystem_mountpoint",
-                                                              "match": "do.droplets.filesystem_free_bytes"})
+                                                              "match": "do.droplets.filesystem_free"})
     assert r.json()["values"] == ["/"]
 
 
@@ -275,6 +275,20 @@ async def test_dashboard_routes(env):
     assert f.json()["name"] == "Kraken's Eye"
 
 
+async def test_every_dashboard_chart_returns_series(env):
+    """B-034: the sidecar asked for load_1, filesystem_free_bytes, network_transmit_bytes, requests_per_second and
+    pg_connections, none of which Insights has. The fake serves only catalog names, so a chart on a wrong name comes
+    back empty here. The load balancer's requests are a rate() of its response counter (A35)."""
+    side = (await env.client.get("/api/dashboards/krakens-eye")).json()["sidecar"]
+    charts = [(i, c) for i, c in enumerate(side["charts"]) if c["promql"]]
+    assert len(charts) == 10
+    for i, chart in charts:
+        run = (await env.client.get("/api/dashboards/krakens-eye/run", params={"index": i, "region": "tor1"})).json()
+        assert run["regions"]["tor1"]["error"] is None and run["series"], chart["title"]
+    lb = next(c for _, c in charts if c["title"] == "Load balancer requests")
+    assert "rate(do.load_balancers.http_responses_by_status{" in lb["promql"] and "A35" in lb["note"]
+
+
 async def test_dashboard_page_without_the_sidecar(env, tmp_path):
     (tmp_path / "dashboards").mkdir()
     (tmp_path / "dashboards" / "krakens-eye.json").write_text('{"name": "raw only"}')
@@ -353,7 +367,7 @@ async def test_token_never_leaks_after_every_panel(env):
         r = await env.client.get(path, params=params)
         assert r.status_code == 200, path
         texts.append(r.text)
-    r = await env.client.post("/api/insights/promql", json={"region": "tor1", "query": "sum(do.droplets.load_1)"},
+    r = await env.client.post("/api/insights/promql", json={"region": "tor1", "query": "sum(do.droplets.load_avg_1m)"},
                               headers=env.captain())
     texts.append(r.text)
     r = await env.client.post("/api/insights/logs/search", headers=env.captain(), json={
@@ -396,7 +410,7 @@ def test_normalize_the_sample_matrix():
                                                         "tor1", fleet)] == [("kraken", 8)]
     families = group_families(fixture("label_values.json")["data"])
     assert list(families) == ["do.apps", "do.container_registry", "do.droplets", "do.load_balancers"]
-    assert families["do.container_registry"][0]["dotted"] == "do.container_registry.storage_used_bytes"
+    assert families["do.container_registry"][0]["dotted"] == "do.container_registry.storage_used"
 
 
 def test_alert_views_from_the_samples():

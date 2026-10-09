@@ -43,7 +43,7 @@ make dev                                 # docker compose up --build
 
 Checks: `make test` (the four suites), `make lint` (ruff), `make smoke` (starts the local runner and fetches
 every page and route), `make leak-sweep` (secret shapes, lab names and public IPs outside the documentation ranges),
-`make audit` (pip-audit). CI runs the same on every push. `make vendor` downloads uPlot only if its files are
+`make check-names` (every metric name in the repo is in `watcher/catalog/`), `make audit` (pip-audit). CI runs the same on every push. `make vendor` downloads uPlot only if its files are
 missing; they are committed with their hashes in `head/static/vendor/uplot/VENDOR.md`.
 
 ## Deploy
@@ -130,6 +130,14 @@ variable; the next deploy picks it up.
 7. A fleet dot or deep-water family reads "no data" all along: take probe names in `watcher/probe_metrics.json` from
    the live catalog, `GET .../prom/api/v1/label/__name__/values` with a `start` and `end`
    (`python harness/insights_harness.py prom values __name__ --region tor1`), not from the docs (B-033).
+8. A metric name that does not exist fails silently. A query on it returns no series, and an alert rule on it is
+   accepted (`201`), listed, can be activated, and never fires; nothing in the rule's status says so (finding A38,
+   B-034). `watcher/catalog/metric-names-<region>.txt` is the catalog as listed on 2026-10-09;
+   `make check-names` (`scripts/check_metric_names.py`, also in CI) fails on any `do.<family>.<name>` or
+   `do_<family>_<name>` in the repo that no catalog file has, and the head logs one warning at startup per probe or
+   voyage metric that a configured region's catalog lacks. When Insights adds or renames a metric, refresh the file
+   from the call in its header. A rule already created on a wrong name is corrected by fixing the template and
+   running `python infra/provision.py --only insights` (`--dry-run` first shows the diff).
 
 Security posture and how to report a problem: [SECURITY.md](SECURITY.md).
 
@@ -179,8 +187,9 @@ head/       the app (porthole/), static pages, dev fakes and runner, smoke.sh, t
 harness/    Insights API library and CLI, carried over unchanged
 tentacle/   the scenario service for the Droplets, carried over unchanged, plus Dockerfile.dev
 infra/      provisioning and teardown through the DigitalOcean API
-watcher/    alert rule templates, the dashboard file and its query list, probe metrics, the skin, the phase 2 Brain spec
-scripts/    the leak sweep and the uPlot vendoring used by make and CI
+watcher/    alert rule templates, the dashboard file and its query list, probe metrics, the metric catalog per region,
+            the skin, the phase 2 Brain spec
+scripts/    the leak sweep, the metric name check and the uPlot vendoring used by make and CI
 .do/        the App Platform spec
 ```
 

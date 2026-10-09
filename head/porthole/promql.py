@@ -33,6 +33,8 @@ ENUM_LABELS: dict[str, frozenset[str]] = {
 FAMILIES = ("droplets", "load_balancers", "databases", "kubernetes", "apps", "container_registry", "spaces",
             "functions", "serverless", "nat_gateways", "nfs", "vector_databases", "volumes", "gpu_droplets")
 DURATION = re.compile(r"^(\d+)([smhd]?)$")
+# Catalog names that are bytes without saying so (watcher/catalog: filesystem_free, not filesystem_free_bytes)
+BYTES = re.compile(r"[._](filesystem_(free|size)|memory_(available|free|cached|total|swap_\w+)|storage_used)\b")
 FAMILY_KIND = {"droplets": "tentacle", "apps": "app", "load_balancers": "load_balancer", "databases": "database",
                "kubernetes": "kubernetes", "functions": "functions", "spaces": "spaces",
                "container_registry": "registry"}  # do.serverless is Serverless Inference, not Functions (B-033)
@@ -238,7 +240,7 @@ def unit_for(text: str) -> str:
         return "per_second"
     if "_utilization" in t or "_pct" in t or "_percent" in t:
         return "percent"
-    if "_bytes" in t:
+    if "_bytes" in t or BYTES.search(t):
         return "bytes"
     if "_seconds" in t:
         return "seconds"

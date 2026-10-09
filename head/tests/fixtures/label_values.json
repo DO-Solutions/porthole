@@ -1,3 +1,3 @@
 {"status": "success", "data": ["do_apps_app_cpu_utilization", "do_apps_app_requests_per_second",
-  "do_droplets_cpu_utilization", "do_droplets_memory_utilization", "do_load_balancers_requests_per_second",
-  "do_container_registry_storage_used_bytes"]}
+  "do_droplets_cpu_utilization", "do_droplets_memory_utilization", "do_load_balancers_http_responses_by_status",
+  "do_container_registry_storage_used"]}

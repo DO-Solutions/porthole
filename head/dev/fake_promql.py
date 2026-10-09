@@ -16,7 +16,20 @@ LAG_S = 60.0  # ingestion plus one-minute resolution
 # Labels differ per metric (finding A22): the Droplet CPU series carries only these, with no resource_region_slug,
 # no resource_name and no host_id, while the Droplet's other series do carry resource_region_slug. A query that pins
 # the region by label finds no CPU series (B-026).
-ONLY_LABELS = {"do_droplets_cpu_utilization": ("__name__", "do_tags", "resource_urn", "service_name"),
+DROPLET_BASE = ("__name__", "do_tags", "resource_urn", "service_name")
+# A37, tor1 2026-10-09 06:08Z: on top of the CPU series' four, the memory series carry the region slug, the
+# filesystem series the region slug and three filesystem_* labels, the network series the region slug and
+# network_device. resource_name stays on the list for the droplet_names flag (older Droplets carry it).
+FS_LABELS = ("resource_region_slug", "resource_name", "filesystem_device", "filesystem_mountpoint", "filesystem_type")
+NET_LABELS = ("resource_region_slug", "resource_name", "network_device")
+MEM_LABELS = ("resource_region_slug", "resource_name")
+ONLY_LABELS = {"do_droplets_cpu_utilization": DROPLET_BASE,
+               "do_droplets_memory_utilization": (*DROPLET_BASE, *MEM_LABELS),
+               "do_droplets_memory_available": (*DROPLET_BASE, *MEM_LABELS),
+               "do_droplets_filesystem_free": (*DROPLET_BASE, *FS_LABELS),
+               "do_droplets_filesystem_size": (*DROPLET_BASE, *FS_LABELS),
+               "do_droplets_network_rx": (*DROPLET_BASE, *NET_LABELS),
+               "do_droplets_network_tx": (*DROPLET_BASE, *NET_LABELS),
                # B-033, tor1 2026-10-09: the load balancer's connection series carry these three, and every
                # do_functions_* series carries resource_urn and nothing else
                "do_load_balancers_connections_active": ("__name__", "do_tags", "resource_urn", "service_name"),
@@ -25,24 +38,30 @@ ONLY_LABELS = {"do_droplets_cpu_utilization": ("__name__", "do_tags", "resource_
                "do_functions_errors_total": ("__name__", "resource_urn")}
 DROPLET_TAGS = '["insights-demo","kraken-tentacle"]'  # finding A23 (the real label also lists two project ids)
 LB_TAGS = '["insights-demo"]'  # the label set is observed (B-033); this value is a stand-in
+ROOT_FS = {"filesystem_mountpoint": "/", "filesystem_device": "/dev/vda1", "filesystem_type": "ext4"}
+# A37: the managed database's volumes show up in the region's label values too, so a label/<name>/values call
+# without match[] returns them next to the tentacles' "/". The service id here is a stand-in.
+DB_FS = tuple({"filesystem_mountpoint": f"/srv/aiven-persistent/kraken-pg-{v}", "filesystem_type": "ext4",
+               "filesystem_device": f"/dev/mapper/kraken-pg-{v}"} for v in ("service", "scratch"))
+# Counters: the value only grows, and rate()/increase() over them are computed from two samples.
+COUNTERS = {"do_load_balancers_http_responses_by_status"}
 
-# underscored name -> (unit, label variants). Names marked in watcher/probe_metrics.json as unverified are synthetic.
+# underscored name -> (unit, label variants). Every name is in watcher/catalog (scripts/check_metric_names.py
+# checks); the values are synthetic.
 FAMILIES: dict[str, dict[str, tuple[str, tuple[dict, ...]]]] = {
     "tentacle": {
         "do_droplets_cpu_utilization": ("percent", ({},)),
         "do_droplets_cpu_time": ("seconds", tuple({"cpu_mode": m} for m in ("user", "system", "idle", "iowait"))),
-        "do_droplets_load_1": ("plain", ({},)), "do_droplets_load_5": ("plain", ({},)),
-        "do_droplets_load_15": ("plain", ({},)),
+        "do_droplets_load_avg_1m": ("plain", ({},)), "do_droplets_load_avg_5m": ("plain", ({},)),
+        "do_droplets_load_avg_15m": ("plain", ({},)),
         "do_droplets_memory_utilization": ("percent", ({},)),
-        "do_droplets_memory_available_bytes": ("bytes", ({},)),
-        "do_droplets_disk_write_bytes": ("bytes", ({"disk_device": "vda"},)),
-        "do_droplets_disk_read_bytes": ("bytes", ({"disk_device": "vda"},)),
-        "do_droplets_filesystem_free_bytes": ("bytes", ({"filesystem_mountpoint": "/", "filesystem_device": "/dev/vda1",
-                                                         "filesystem_type": "ext4"},)),
-        "do_droplets_filesystem_size_bytes": ("bytes", ({"filesystem_mountpoint": "/", "filesystem_device": "/dev/vda1",
-                                                         "filesystem_type": "ext4"},)),
-        "do_droplets_network_receive_bytes": ("bytes", ({"network_device": "eth0"}, {"network_device": "eth1"})),
-        "do_droplets_network_transmit_bytes": ("bytes", ({"network_device": "eth0"}, {"network_device": "eth1"})),
+        "do_droplets_memory_available": ("bytes", ({},)),
+        "do_droplets_disk_write": ("bytes", ({"disk_device": "vda"},)),
+        "do_droplets_disk_read": ("bytes", ({"disk_device": "vda"},)),
+        "do_droplets_filesystem_free": ("bytes", (ROOT_FS,)),
+        "do_droplets_filesystem_size": ("bytes", (ROOT_FS,)),
+        "do_droplets_network_rx": ("bytes", ({"network_device": "eth0"}, {"network_device": "eth1"})),
+        "do_droplets_network_tx": ("bytes", ({"network_device": "eth0"}, {"network_device": "eth1"})),
     },
     "app": {
         "do_apps_app_cpu_utilization": ("percent", ({},)), "do_apps_app_memory_utilization": ("percent", ({},)),
@@ -50,13 +69,13 @@ FAMILIES: dict[str, dict[str, tuple[str, tuple[dict, ...]]]] = {
         "do_apps_app_request_duration_p95": ("seconds", ({},)), "do_apps_app_replicas_ready": ("plain", ({},)),
     },
     "load_balancer": {
-        "do_load_balancers_requests_per_second": ("per_second", ({},)),
+        "do_load_balancers_http_responses_by_status": ("plain", ({},)),  # a counter; rps is rate() of it (A35)
         "do_load_balancers_connections_active": ("plain", ({},)),
         "do_load_balancers_http_error_count_5xx": ("plain", ({},)),
     },
     "database": {
         "do_databases_cpu_utilization": ("percent", ({},)), "do_databases_memory_utilization": ("percent", ({},)),
-        "do_databases_pg_connections": ("plain", ({},)),
+        "do_databases_pg_connections_active": ("plain", ({},)), "do_databases_filesystem_free": ("bytes", DB_FS),
     },
     "kubernetes": {
         "do_kubernetes_node_cpu_utilization": ("percent", ({},)),
@@ -65,7 +84,7 @@ FAMILIES: dict[str, dict[str, tuple[str, tuple[dict, ...]]]] = {
     "functions": {"do_functions_activations": ("plain", ({},)), "do_functions_avg_duration": ("ms", ({},)),
                   "do_functions_errors_total": ("plain", ({},))},
     "spaces": {"do_spaces_requests": ("plain", ({"spaces_operation": "GET"}, {"spaces_operation": "PUT"}))},
-    "registry": {"do_container_registry_storage_used_bytes": ("bytes", ({},))},
+    "registry": {"do_container_registry_storage_used": ("bytes", ({},))},
 }
 
 
@@ -176,7 +195,7 @@ class SeriesModel:
             for r in self._active(e, "memory", t):
                 v += r["params"].get("mb", 0) / 1024 * 100
             return round(min(100.0, v), 3)
-        if m == "do_droplets_memory_available_bytes":
+        if m == "do_droplets_memory_available":
             held = sum(r["params"].get("mb", 0) for r in self._active(e, "memory", t))
             return float((700 - held + 20 * n) * 2**20)
         if m.startswith("do_droplets_filesystem_free"):
@@ -205,8 +224,8 @@ class SeriesModel:
             return round(0.04 + 0.03 * n, 4)
         if m == "do_apps_app_replicas_ready":
             return 1.0
-        if m == "do_load_balancers_requests_per_second":
-            return round(0.05 * n + self._load(t, "lb") / 60, 3)
+        if m == "do_load_balancers_http_responses_by_status":
+            return float(int(t * 0.05) + self._load(t, "lb", since=0))  # a trickle of 0.05 rps plus the lb load
         if m == "do_load_balancers_connections_active":
             return float(round(self._load(t, "lb") / 400))  # 0 at rest, 3 under 20 rps (B-033)
         if m == "do_functions_activations":
@@ -215,15 +234,16 @@ class SeriesModel:
             return round(12 + 6 * n, 2)
         if m == "do_functions_errors_total":
             return 0.0
-        if m == "do_databases_pg_connections":
+        if m == "do_databases_pg_connections_active":
             return float(3 + sum(r["params"].get("clients", 0) for r in self._active(e, "pg", t)))
         return round(10 + 5 * n + 3 * w, 3)
 
-    def _load(self, t: float, kind: str) -> int:
+    def _load(self, t: float, kind: str, since: float | None = None) -> int:
+        """Requests of this kind in the minute before t less the lag, or from since to then."""
         if self.world is None:
             return 0
         end = t - LAG_S
-        return self.world.requests(kind, end - 60, end)
+        return self.world.requests(kind, end - 60 if since is None else since, end)
 
 
 # --- the evaluator ------------------------------------------------------------------------------
@@ -391,8 +411,16 @@ def evaluate(model: SeriesModel, region: str, tree: tuple, t: float) -> list[tup
                 out.append((dict(s.labels), v))
         return out
     if kind == "func":
-        return [({k: v for k, v in lbl.items() if k != "__name__"}, val)
-                for lbl, val in evaluate(model, region, tree[2], t)]
+        _, fn, (_, metric, matchers, window) = tree
+        out = []
+        for s in select(model, region, metric, matchers):
+            v = model.value(s, t)
+            if v is not None and s.metric in COUNTERS and fn in ("rate", "irate", "increase"):
+                before = model.value(s, t - window)
+                v = None if before is None else max(0.0, v - before) / (1 if fn == "increase" else window)
+            if v is not None:
+                out.append(({k: x for k, x in s.labels.items() if k != "__name__"}, v))
+        return out
     if kind == "agg":
         _, op, by, arg = tree
         groups: dict[tuple, list[float]] = {}

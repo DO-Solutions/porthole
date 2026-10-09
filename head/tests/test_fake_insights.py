@@ -58,7 +58,7 @@ def test_droplet_names_behind_a_flag(world):
     assert {s["metric"].get("resource_name") for s in ins.query(q, region="tor1")["data"]["result"]} == {
         "kraken-tentacle-1", "kraken-tentacle-2"}
     assert {s["metric"].get("resource_name") for s in world["ins"].query(q, region="tor1")["data"]["result"]} == {None}
-    lb = world["ins"].query("count by (resource_name) (do.load_balancers.requests_per_second)", region="tor1")
+    lb = world["ins"].query("count by (resource_name) (do.load_balancers.http_error_count_5xx)", region="tor1")
     assert [s["metric"] for s in lb["data"]["result"]] == [{"resource_name": "kraken-lb"}]
 
 
@@ -99,9 +99,50 @@ def test_discovery_needs_a_window(world):  # finding A1
 def test_catalog_is_per_region(world):
     tor = world["ins"].label_values("__name__", region="tor1")["data"]
     syd = world["ins"].label_values("__name__", region="syd1")["data"]
-    assert "do_apps_app_requests_per_second" in tor and "do_load_balancers_requests_per_second" in tor
+    assert "do_apps_app_requests_per_second" in tor and "do_load_balancers_http_responses_by_status" in tor
     assert all(n.startswith("do_droplets_") for n in syd)
     assert world["ins"].label_values("__name__", region="ams3")["data"] == []
+
+
+def test_every_name_the_fake_serves_is_in_the_committed_catalog(world):
+    """B-034: the fake serves only names the region's catalog in watcher/catalog lists, so a test cannot pass on a
+    name Insights does not have."""
+    for region in ("tor1", "syd1"):
+        path = REPO / "watcher" / "catalog" / f"metric-names-{region}.txt"
+        catalog = {n for n in path.read_text().split() if n.startswith("do_")}
+        served = set(world["ins"].label_values("__name__", region=region)["data"])
+        assert served and served <= catalog, sorted(served - catalog)
+
+
+def test_droplet_label_sets_and_catalog_wide_label_values(world):
+    """A37 (tor1 2026-10-09): memory carries the region slug, filesystem the region slug and three filesystem_*
+    labels, network the region slug and network_device. Label values without match[] come from every product in
+    the region, so the managed database's mountpoints show up next to the tentacles' /."""
+    urn = 'resource_urn="do:droplet:600000001"'
+    base = {"__name__", "do_tags", "resource_urn", "service_name", "resource_region_slug"}
+    shapes = {"memory_utilization": base, "memory_available": base,
+              "filesystem_free": base | {"filesystem_device", "filesystem_mountpoint", "filesystem_type"},
+              "filesystem_size": base | {"filesystem_device", "filesystem_mountpoint", "filesystem_type"},
+              "network_rx": base | {"network_device"}, "network_tx": base | {"network_device"}}
+    for name, keys in shapes.items():
+        series = world["ins"].query(f"do.droplets.{name}{{{urn}}}", region="tor1")["data"]["result"]
+        assert series and all(set(s["metric"]) == keys for s in series), name
+    fs = world["ins"].query(f"do.droplets.filesystem_free{{{urn}}}", region="tor1")["data"]["result"][0]["metric"]
+    assert (fs["filesystem_device"], fs["filesystem_mountpoint"], fs["filesystem_type"]) == ("/dev/vda1", "/", "ext4")
+    pinned = 'do.droplets.filesystem_free{resource_urn=~"do:droplet:600000001|do:droplet:600000002"}'
+    assert world["ins"].label_values("filesystem_mountpoint", match=[pinned], region="tor1")["data"] == ["/"]
+    every = world["ins"].label_values("filesystem_mountpoint", region="tor1")["data"]
+    assert "/" in every and any(m.startswith("/srv/aiven-persistent/") for m in every)
+    net = world["ins"].label_values("network_device", match=["do.droplets.network_tx"], region="tor1")["data"]
+    assert net == ["eth0", "eth1"]
+
+
+def test_lb_requests_per_second_is_a_rate_of_the_response_counter(world):
+    """A35: there is no request-rate metric; http_responses_by_status is a counter and rps is rate() of it."""
+    counter = world["ins"].query("do.load_balancers.http_responses_by_status", region="tor1")["data"]["result"]
+    rps = world["ins"].query("sum(rate(do.load_balancers.http_responses_by_status[5m]))",
+                             region="tor1")["data"]["result"]
+    assert float(counter[0]["value"][1]) > 1000 and 0 < float(rps[0]["value"][1]) < 1
 
 
 def test_lb_and_function_series_carry_the_tor1_names_and_labels(world):
@@ -110,7 +151,8 @@ def test_lb_and_function_series_carry_the_tor1_names_and_labels(world):
     every do_functions_* series carries resource_urn alone."""
     tor = world["ins"].label_values("__name__", region="tor1")["data"]
     assert {"do_load_balancers_connections_active", "do_functions_activations"} <= set(tor)
-    assert "do_load_balancers_connections_current" not in tor and not [n for n in tor if "serverless" in n]
+    assert "do_load_balancers_connections_current" not in tor  # not-in-catalog
+    assert not [n for n in tor if "serverless" in n]
     lb = world["ins"].query("do.load_balancers.connections_active", region="tor1")["data"]["result"]
     assert [set(s["metric"]) for s in lb] == [{"__name__", "do_tags", "resource_urn", "service_name"}]
     assert lb[0]["metric"]["resource_urn"] == "do:loadbalancer:00000000-0000-0000-0000-000000000001"
@@ -122,14 +164,14 @@ def test_lb_and_function_series_carry_the_tor1_names_and_labels(world):
 
 def test_the_probe_file_names_metrics_that_exist(world):
     """The family probes of watcher/probe_metrics.json find the load balancer and the namespace by URN; the names it
-    had before B-033 (do.load_balancers.connections_current, do.serverless.invocations) find nothing."""
+    had before B-033 find nothing; those two names are in no catalog, so their lines carry not-in-catalog."""
     families = json.loads((REPO / "watcher" / "probe_metrics.json").read_text())["families"]
     for kind in ("load_balancer", "functions"):
         urn = next(e.urn for e in world["fleet"].entities() if e.kind == kind)
         body = world["ins"].query(f"count by (resource_urn) ({families[kind]['metric']})", region="tor1")
         assert [s["metric"] for s in body["data"]["result"]] == [{"resource_urn": urn}], kind
         assert families[kind]["verified"] is True
-    for old in ("do.load_balancers.connections_current", "do.serverless.invocations"):
+    for old in ("do.load_balancers.connections_current", "do.serverless.invocations"):  # not-in-catalog
         assert world["ins"].query(f"count({old})", region="tor1")["data"]["result"] == []
 
 

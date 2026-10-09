@@ -152,6 +152,7 @@ def build_services(deps: Deps) -> None:
     deps.panels_caps = deps.panels.caps
     deps.poller = FleetPoller(deps)
     deps.on_start(lambda: deps.spawn(deps.poller.run(), "fleet-poller"))
+    deps.on_start(lambda: warn_unknown_metrics(deps))
     deps.scenarios = ScenarioService(deps)
     deps.scenarios_caps = deps.scenarios.caps
     deps.hooks = DeliveryStore(deps.hub, deps.clock.now, secrets=deps.settings.secret_values())
@@ -166,3 +167,15 @@ def build_services(deps: Deps) -> None:
     elif deps.settings.brain == "harness-runtime":
         s = deps.settings
         deps.brain = HarnessRuntimeBrain(session=s.brain_session, gateway_url=s.gateway_mcp_url, token=s.brain_token)
+
+
+def warn_unknown_metrics(deps: Deps) -> None:
+    """One warning per probe or voyage metric that a configured region's committed catalog lacks (B-034)."""
+    from porthole import metric_catalog, voyages_metrics
+
+    names = [*deps.panels.probe_metrics.values(), *voyages_metrics.METRICS]
+    catalog = metric_catalog.load(deps.watcher_dir)
+    for name, regions in metric_catalog.missing(names, deps.settings.fleet, catalog).items():
+        deps.log.warn(f"metric {name} is not in the committed catalog for {', '.join(regions)} (watcher/catalog): "
+                      "Insights answers queries on it with no data and a rule on it never fires",
+                      **{"metric.name": name, "regions": regions})

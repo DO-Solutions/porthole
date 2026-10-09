@@ -16,7 +16,7 @@ MUTATING = [
     ("/api/scenarios/stop", {"target": "tentacle-1", "run_id": "cpu-00000000"}),
     ("/api/voyages/start", {"voyage": "chain", "params": {}}),
     ("/api/voyages/v-000000/abort", None),
-    ("/api/insights/promql", {"region": "tor1", "query": "sum(do.droplets.load_1)"}),
+    ("/api/insights/promql", {"region": "tor1", "query": "sum(do.droplets.load_avg_1m)"}),
     ("/api/insights/logs/search", {"region": "tor1"}),
     ("/api/insights/rules/00000000-0000-0000-0000-0000000000a1/status", {"status": "paused"}),
     ("/api/brain/sessions/s-000000/approvals/a-000000", {"decision": "approve"}),

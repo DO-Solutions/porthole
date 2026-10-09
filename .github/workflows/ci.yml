@@ -30,6 +30,8 @@ jobs:
         run: pip-audit -r head/requirements.txt -r tentacle/requirements.txt -r infra/requirements.txt
       - name: leak sweep
         run: python scripts/leak_sweep.py
+      - name: metric names in the catalog
+        run: python scripts/check_metric_names.py
       - name: smoke
         run: bash head/dev/smoke.sh
       - uses: actions/setup-node@v4

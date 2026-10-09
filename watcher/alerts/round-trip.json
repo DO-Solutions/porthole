@@ -22,7 +22,7 @@
       "used_by": "scenario cpu with 2 workers",
       "spec": {
         "name": "kraken load above 1.5",
-        "query": {"metric": "do.droplets.load_1", "resource_urns": ["{{URN}}"]},
+        "query": {"metric": "do.droplets.load_avg_1m", "resource_urns": ["{{URN}}"]},
         "condition": {"window": "EVALUATION_WINDOW_5M"},
         "thresholds": {"operator": "THRESHOLD_OPERATOR_GREATER_THAN", "warning": 0.9, "critical": 1.5},
         "notification_channels": [{"notification_channel_id": "{{CHANNEL}}", "notify_on": ["SEVERITY_CRITICAL"]}],
@@ -36,7 +36,7 @@
       "used_by": "voyage ballast (memory 500 MB)",
       "spec": {
         "name": "kraken memory available at or below 250 MiB",
-        "query": {"metric": "do.droplets.memory_available_bytes", "resource_urns": ["{{URN}}"]},
+        "query": {"metric": "do.droplets.memory_available", "resource_urns": ["{{URN}}"]},
         "condition": {"window": "EVALUATION_WINDOW_10M"},
         "thresholds": {"operator": "THRESHOLD_OPERATOR_LESS_THAN_OR_EQUAL", "warning": 262144000, "critical": 157286400},
         "notification_channels": [{"notification_channel_id": "{{CHANNEL}}"}],
@@ -50,7 +50,7 @@
       "used_by": "voyage ballast (disk 2048 MB)",
       "spec": {
         "name": "kraken free disk below 16 GiB",
-        "query": {"metric": "do.droplets.filesystem_free_bytes", "resource_urns": ["{{URN}}"]},
+        "query": {"metric": "do.droplets.filesystem_free", "resource_urns": ["{{URN}}"]},
         "condition": {"window": "EVALUATION_WINDOW_15M"},
         "thresholds": {"operator": "THRESHOLD_OPERATOR_LESS_THAN", "warning": 18253611008, "critical": 17179869184},
         "notification_channels": [{"notification_channel_id": "{{CHANNEL}}"}],
@@ -64,7 +64,7 @@
       "used_by": "boundary operator check on an idle box",
       "spec": {
         "name": "kraken 15-minute load exactly zero",
-        "query": {"metric": "do.droplets.load_15", "resource_urns": ["{{URN}}"]},
+        "query": {"metric": "do.droplets.load_avg_15m", "resource_urns": ["{{URN}}"]},
         "condition": {"window": "EVALUATION_WINDOW_30M"},
         "thresholds": {"operator": "THRESHOLD_OPERATOR_EQUAL", "critical": 0},
         "notification_channels": [{"notification_channel_id": "{{CHANNEL}}"}],
@@ -78,7 +78,7 @@
       "used_by": "boundary operator check; fires whenever the box has any load",
       "spec": {
         "name": "kraken load not zero",
-        "query": {"metric": "do.droplets.load_1", "resource_urns": ["{{URN}}"]},
+        "query": {"metric": "do.droplets.load_avg_1m", "resource_urns": ["{{URN}}"]},
         "condition": {"window": "EVALUATION_WINDOW_1H"},
         "thresholds": {"operator": "THRESHOLD_OPERATOR_NOT_EQUAL", "critical": 0},
         "notification_channels": [{"notification_channel_id": "{{CHANNEL}}"}],

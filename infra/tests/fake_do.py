@@ -159,6 +159,12 @@ class FakeDO:
         if method == "GET":
             self.settle(coll, obj)
             return reply(200, {item_key: self.view(coll, obj)})
+        if method == "PUT" and coll == "insights/alert-rules":
+            assert "{{" not in json.dumps(body), "a placeholder was left in the rule"
+            kept = obj["spec"].get("notification_channels")  # omitted on PUT keeps the bindings
+            obj["spec"] = {**body["spec"], "notification_channels": body["spec"].get("notification_channels", kept)}
+            obj["status"] = body.get("status") or obj["status"]  # omitted on PUT keeps the status
+            return reply(200, {item_key: self.view(coll, obj)})
         if method == "PUT" and coll == "apps":
             stored = {e["key"]: e.get("value") for e in spec_envs(obj["spec"])}
             for env in spec_envs(body["spec"]):

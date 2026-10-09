@@ -57,6 +57,11 @@ step adds once the load balancer exists. A tentacle's user_data is `tentacle/ins
 
 Rule templates get `{{URN}}` (the target tentacle) and `{{CHANNEL}}` (the webhook channel) filled in and keep their
 status. The rule list leaves rules out (finding A2), so rule ids live in state and a later run checks each by id.
+When a rule exists but its spec differs from the template in any field the template sets, the run sends one
+`PUT /v2/insights/alert-rules/{id}` with the template's spec and prints `updated alert rule <name> (id ...): <field>
+<old> -> <new>`; a dry run prints `would update ...` with the same diff. The PUT carries no status, so a paused rule
+stays paused. This is how the five rules created on metric names Insights does not have were corrected (BUGS.md
+B-034): `python infra/provision.py --only insights --dry-run`, then `python infra/provision.py --only insights`.
 For the load balancer, the database and the cluster, the URN comes from Insights (`label/resource_urn/values`),
 or is the documented pattern with `urn_verified: false` until the resource reports there.
 
@@ -83,7 +88,8 @@ python infra/teardown.py --yes              # delete it
 The spaces step is optional: when it fails, the run prints a warning and goes on, because nothing else depends
 on the bucket. Every other failed step stops the run.
 
-Each action prints one line (`exists ...`, `created ...`, or in a dry run `would create ... (POST /v2/...)`). An
+Each action prints one line (`exists ...`, `created ...`, `updated ...`, or in a dry run `would create ... (POST
+/v2/...)` and `would update ... (PUT /v2/...)`). An
 API error stops the run with exit code 1 and a one-line message; a missing variable exits with code 2.
 
 ## Without doctl or kubectl

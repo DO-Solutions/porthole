@@ -28,8 +28,8 @@ def test_the_region_is_never_a_label_matcher():
 
 
 def test_rate_and_raw_selector():
-    q = promql.build("do.droplets.network_receive_bytes", "rate", {}, "syd1", FLEET)
-    assert q == ('sum by (resource_urn) (rate(do.droplets.network_receive_bytes{'
+    q = promql.build("do.droplets.network_rx", "rate", {}, "syd1", FLEET)
+    assert q == ('sum by (resource_urn) (rate(do.droplets.network_rx{'
                  'resource_urn=~"do:droplet:600000003"}[5m]))')
     assert promql.build(CPU, None, {}, "syd1", FLEET) == f'{CPU}{{resource_urn=~"do:droplet:600000003"}}'
     assert promql.build(CPU, "none", {}, "syd1", FLEET) == promql.build(CPU, None, {}, "syd1", FLEET)
@@ -51,11 +51,11 @@ def test_filters_replace_the_fleet_pin():
 
 
 def test_the_pin_follows_the_metric_family():
-    lb = promql.build("do.load_balancers.requests_per_second", "sum", {}, "tor1", FLEET)
-    assert lb == ('sum by (resource_urn) (do.load_balancers.requests_per_second{'
+    lb = promql.build("do.load_balancers.connections_active", "sum", {}, "tor1", FLEET)
+    assert lb == ('sum by (resource_urn) (do.load_balancers.connections_active{'
                   'resource_urn=~"do:loadbalancer:00000000-0000-0000-0000-000000000001"})')
-    other = promql.build("do.gpu_droplets.gpu_utilization", None, {}, "syd1", FLEET)
-    assert other == 'do.gpu_droplets.gpu_utilization{resource_urn=~"do:droplet:600000003"}'
+    other = promql.build("do.gpu_droplets.gpu_utilization", None, {}, "syd1", FLEET)  # not-in-catalog: no members
+    assert other == 'do.gpu_droplets.gpu_utilization{resource_urn=~"do:droplet:600000003"}'  # not-in-catalog
 
 
 def test_members_without_a_urn_stay_selected_by_name():
@@ -79,7 +79,7 @@ def test_the_function_namespace_is_selected_by_urn():
 
 
 def test_enum_labels_keep_the_pin():
-    q = promql.build("do.droplets.network_transmit_bytes", "sum", promql.parse_filters("network_device=eth1"),
+    q = promql.build("do.droplets.network_tx", "sum", promql.parse_filters("network_device=eth1"),
                      "tor1", FLEET)
     assert TOR1_PIN in q and 'network_device="eth1"' in q
 
@@ -111,7 +111,7 @@ def test_raw_promql_caps():
     assert promql.check_raw(" sum(rate(do.droplets.cpu_time[5m])) ") == "sum(rate(do.droplets.cpu_time[5m]))"
     with pytest.raises(BuilderError, match="the cap is 500"):
         promql.check_raw("x" * 501)
-    for bad in ("sum(do.x.y", "do.x.y{a=\"1\"", "rate(do.x.y[5m)", "café", ""):
+    for bad in ("sum(do.x.y", "do.x.y{a=\"1\"", "rate(do.x.y[5m)", "café", ""):  # not-in-catalog: parse errors
         with pytest.raises(BuilderError):
             promql.check_raw(bad)
     assert promql.check_raw('count({resource_name="a)"})')  # brackets inside strings do not count
@@ -131,10 +131,13 @@ def test_range_and_step_caps():
 
 
 @pytest.mark.parametrize("text,unit", [
-    ("do.droplets.cpu_utilization", "percent"), ("do.apps.app_memory_pct", "percent"),
-    ("do.droplets.filesystem_free_bytes", "bytes"), ("do.apps.app_request_duration_seconds", "seconds"),
-    ("do.serverless.duration_ms", "ms"), ("do.apps.app_requests_per_second", "per_second"),
-    ("sum(rate(do.droplets.network_receive_bytes[5m]))", "per_second"), ("do.droplets.load_1", "plain"),
+    ("do.droplets.cpu_utilization", "percent"), ("do.droplets.filesystem_free", "bytes"),
+    ("do.droplets.memory_available", "bytes"), ("do.container_registry.storage_used", "bytes"),
+    ("do.kubernetes.apiserver_request_duration_seconds_sum", "seconds"),
+    ("do.apps.app_requests_per_second", "per_second"), ("sum(rate(do.droplets.network_rx[5m]))", "per_second"),
+    ("do.droplets.load_avg_1m", "plain"),
+    # the suffix rules alone, on names no catalog carries
+    ("do.apps.app_memory_pct", "percent"), ("do.x.free_bytes", "bytes"), ("do.x.duration_ms", "ms"),  # not-in-catalog
 ])
 def test_unit_heuristics(text, unit):
     assert promql.unit_for(text) == unit
@@ -142,10 +145,10 @@ def test_unit_heuristics(text, unit):
 
 @pytest.mark.parametrize("name,family,dotted", [
     ("do_droplets_cpu_utilization", "do.droplets", "do.droplets.cpu_utilization"),
-    ("do_load_balancers_requests_per_second", "do.load_balancers", "do.load_balancers.requests_per_second"),
+    ("do_load_balancers_http_responses_by_status", "do.load_balancers", "do.load_balancers.http_responses_by_status"),
     ("do_apps_app_cpu_usage", "do.apps", "do.apps.app_cpu_usage"),
-    ("do_container_registry_storage_used_bytes", "do.container_registry", "do.container_registry.storage_used_bytes"),
-    ("do_mystery_thing_count", "do.mystery", "do.mystery.thing_count"),
+    ("do_container_registry_storage_used", "do.container_registry", "do.container_registry.storage_used"),
+    ("do_mystery_thing_count", "do.mystery", "do.mystery.thing_count"),  # not-in-catalog: an unknown family
 ])
 def test_dotted_names_from_the_catalog(name, family, dotted):
     assert promql.dotted(name) == (family, dotted)

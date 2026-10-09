@@ -2,7 +2,7 @@
 PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 PY := $(if $(findstring /,$(PYTHON)),$(abspath $(PYTHON)),$(PYTHON))
 
-.PHONY: help dev test lint smoke vendor leak-sweep audit
+.PHONY: help dev test lint smoke vendor leak-sweep check-names audit
 
 help:
 	@echo "make dev        docker compose up: head, two tentacles, fake Insights"
@@ -11,6 +11,7 @@ help:
 	@echo "make smoke      start head/dev/run_local.py and fetch every page and route"
 	@echo "make vendor     download uPlot only if its files are missing"
 	@echo "make leak-sweep secret shapes, lab names and public IPs"
+	@echo "make check-names every metric name in the repo is in watcher/catalog"
 	@echo "make audit      pip-audit over the pinned requirements"
 
 dev:
@@ -34,6 +35,9 @@ vendor:
 
 leak-sweep:
 	$(PY) scripts/leak_sweep.py
+
+check-names:
+	$(PY) scripts/check_metric_names.py
 
 audit:
 	$(PY) -m pip_audit -r head/requirements.txt -r tentacle/requirements.txt -r infra/requirements.txt

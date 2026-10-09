@@ -267,6 +267,18 @@ async def test_ballast_falls_back_to_the_409_of_an_older_tentacle(env):
     assert run.summary["memory_held_mb"] == {"tentacle-1": 440, "tentacle-2": 250}
 
 
+async def test_ballast_reads_the_device_labels_under_the_catalog_names(env):
+    """B-034, 2026-10-09 06:08Z: the labels step asked for filesystem_free_bytes and network_transmit_bytes, which do
+    not exist, and reported none for both. Under filesystem_free and network_tx it finds the tentacles' devices, and
+    its match[] keeps out the managed database's mountpoints that an unmatched label call returns (A37)."""
+    run = await sail(env, "ballast")
+    assert await env.run_until(lambda: run.status != "sailing")
+    assert run.status == "done", run.error
+    assert run.step("labels").text == "filesystem_mountpoint: /; network_device: eth0, eth1"
+    assert run.summary["labels"] == {"filesystem_mountpoint": ["/"], "network_device": ["eth0", "eth1"]}
+    assert run.step("summary").text.endswith("; filesystem_mountpoint: /; network_device: eth0, eth1")
+
+
 @pytest.mark.parametrize("avail,ask", [(590, 440), (900, 500), (400, 250), (200, 64), (100, 64)])
 def test_memory_ask_leaves_150_mb_and_never_drops_below_the_minimum(avail, ask):
     from porthole.voyages_metrics import memory_ask

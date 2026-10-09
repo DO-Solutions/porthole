@@ -19,6 +19,13 @@ from porthole.voyages import VoyageFailed
 WINDOW_S = {"1m": 60, "5m": 300, "10m": 600, "15m": 900, "30m": 1800, "1h": 3600}
 OPS = {">": operator.gt, ">=": operator.ge, "<": operator.lt, "<=": operator.le, "=": operator.eq, "!=": operator.ne}
 CPU = "do.droplets.cpu_utilization"
+MEMORY, FS_FREE, NET_TX = "do.droplets.memory_utilization", "do.droplets.filesystem_free", "do.droplets.network_tx"
+# Ballast reads one device label from each family that carries it (A37): the filesystem series carry
+# filesystem_mountpoint, the network series network_device. The match[] stays, because label values without one
+# come from every product in the region (the managed databases' mountpoints too).
+BALLAST_LABELS = (("filesystem_mountpoint", FS_FREE), ("network_device", NET_TX))
+# Every metric name a voyage asks for by name; the head checks them against watcher/catalog at startup.
+METRICS = (CPU, MEMORY, FS_FREE, NET_TX)
 # Ballast asks each tentacle for up to 500 MB and leaves it 150 MB, 50 more than the tentacle's own 100 MB guard
 # (a 1 GB Droplet has about 590 MB available, B-032). The floor is the memory scenario's minimum.
 BALLAST_MEMORY_MB, BALLAST_SPARE_MB = 500, 150
@@ -260,13 +267,12 @@ async def ballast(ctx: Any) -> dict:
     peaks: dict[str, float] = {}
     async with ctx.step("watch") as s:
         start = ctx.now()
-        for metric in ("do.droplets.memory_utilization", "do.droplets.filesystem_free_bytes",
-                       "do.droplets.network_transmit_bytes"):
+        for metric in (MEMORY, FS_FREE, NET_TX):
             s.artifact("chart", metric, region=targets[0].region)
 
         async def sampled() -> bool:
             for t in targets:
-                v = await value(ctx, "do.droplets.memory_utilization", t.name, t.region, "max")
+                v = await value(ctx, MEMORY, t.name, t.region, "max")
                 if v is not None:
                     peaks[t.display] = round(max(v, peaks.get(t.display, 0.0)), 1)
             return (ctx.now() - start).total_seconds() >= 360
@@ -275,15 +281,14 @@ async def ballast(ctx: Any) -> dict:
     found: dict[str, list] = {}
     async with ctx.step("labels") as s:
         region = targets[0].region
-        for label, metric in (("filesystem_mountpoint", "do.droplets.filesystem_free_bytes"),
-                              ("network_device", "do.droplets.network_transmit_bytes")):
+        for label, metric in BALLAST_LABELS:
             match = [promql.selector(metric, {}, region, ctx.fleet)]
             body = await ctx.insights("label_values", label, match=match, region=region)
             found[label] = list(body.get("data") or [])
-        s.note("; ".join(f"{k}: {', '.join(v) or 'none'}" for k, v in found.items()))
+        labels = "; ".join(f"{k}: {', '.join(v) or 'none'}" for k, v in found.items())
+        s.note(labels)
     async with ctx.step("summary") as s:
-        s.note(f"memory held {held} MB, peaks {peaks}; labels {found}"
-               + (f"; refused {len(refused)}" if refused else ""))
+        s.note(f"memory held {held} MB, peaks {peaks}; {labels}" + (f"; refused {len(refused)}" if refused else ""))
     return {"memory_held_mb": held, "memory_peak_pct": peaks, "labels": found, "refused": refused}
 
 
