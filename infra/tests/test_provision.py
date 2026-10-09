@@ -196,6 +196,17 @@ def test_user_data_carries_the_variables_right_after_the_shebang(run, world, out
     assert state["droplet:kraken-tentacle-1"]["ip"] != state["reserved_ip:kraken-tentacle-1"]["id"]
 
 
+def test_firewall_opens_22_only_with_an_allow_list() -> None:
+    from steps.network import firewall_body
+    closed = firewall_body("")
+    assert [r["ports"] for r in closed["inbound_rules"]] == ["8800"]
+    assert closed["inbound_rules"][0]["sources"] == {"addresses": ["0.0.0.0/0", "::/0"]}
+    opened = firewall_body("192.0.2.0/24, 198.51.100.7/32")
+    assert opened["inbound_rules"][0] == {"protocol": "tcp", "ports": "22",
+                                          "sources": {"addresses": ["192.0.2.0/24", "198.51.100.7/32"]}}
+    assert opened["tags"] == ["kraken-tentacle"] and len(opened["outbound_rules"]) == 3
+
+
 def test_user_data_needs_a_shebang_and_quotes_values() -> None:
     script = user_data("#!/bin/bash\nset -e\n", {"A": "x y", "B": "", "C": "plain"})
     assert script == "#!/bin/bash\nexport A='x y'\nexport C=plain\nset -e\n"

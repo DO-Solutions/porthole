@@ -53,8 +53,7 @@ async def test_alert_round_trip_records_every_latency(env):
     for key in ("burn_to_cross_s", "cross_to_active_s", "active_to_delivery_s", "stop_to_resolved_s",
                 "stop_to_fall_s", "resolved_to_delivery_s"):
         assert isinstance(run.summary[key], float) and run.summary[key] >= 0, key
-    assert run.step("read-rule").text == "kraken churn: >= 60.0 critical, window 1m, re-alert 30m" or \
-        run.step("read-rule").text.startswith("kraken churn: >= 60")
+    assert run.step("read-rule").text == "kraken churn: >= 60 critical, window 1m, re-alert 30m"
     first = run.step("webhook-delivered").artifacts[0]["ref"]
     assert env.deps.hooks.get(first)["matched_voyage"] == run.id
     cpu = env.fleet.by_name("kraken-tentacle-1").runs[run.scenarios_started[0]["run_id"]]

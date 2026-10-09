@@ -134,7 +134,7 @@ async def test_harness_calls_run_on_their_own_thread_pool(env):
 
     results = await asyncio.gather(*(env.deps.run_sync(wait_then, i) for i in range(12)))
     assert results == list(range(12))
-    assert all(t.name.startswith("harness") for t in threading.enumerate() if t.name.startswith("harness"))
+    assert sum(1 for t in threading.enumerate() if t.name.startswith("harness")) >= 12
 
 
 async def test_collect_calls_crosses_worker_threads(env):

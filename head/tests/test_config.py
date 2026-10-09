@@ -5,7 +5,7 @@ import json
 import re
 
 import pytest
-from conftest import HEAD, REPO, base_env, fleet_text
+from conftest import HEAD, REPO, AppEnv, base_env, fleet_text
 
 from porthole.config import VARIABLES, Fleet, FleetError, Settings
 
@@ -119,6 +119,68 @@ def test_deeplink_overrides_must_be_an_object():
     s = Settings.from_env(base_env(PORTHOLE_DEEPLINKS_JSON="[1,2]"))
     assert s.deeplink_overrides == {}
     assert any("PORTHOLE_DEEPLINKS_JSON" in p for p in s.problems)
+
+
+async def test_insights_base_url_reaches_the_harness_and_the_curl_lines():
+    async with AppEnv(base_env(PORTHOLE_INSIGHTS_BASE_URL="http://insights-fake:9000/")) as e:
+        assert str(e.deps.insights._http.base_url).rstrip("/") == "http://insights-fake:9000"
+        await e.deps.run_sync(e.deps.insights.query, "count(do.droplets.cpu_utilization)", region="tor1")
+        call = e.deps.trace.ring[-1]
+        curl = (await e.client.get(f"/api/trace/{call.id}")).json()["curl"]
+        assert "http://insights-fake:9000/v2/insights/query/tor1/prom/api/v1/query" in curl
+
+
+async def test_service_name_is_on_logs_spans_and_the_traces_page():
+    async with AppEnv(base_env(OTEL_SERVICE_NAME="porthole-staging")) as e:
+        await e.client.get("/api/config")
+        assert all(line["service.name"] == "porthole-staging" for line in e.log_lines())
+        assert (await e.client.get("/api/traces/own")).json()["service_name"] == "porthole-staging"
+        assert (await e.client.get("/api/logs/own")).json()["service_name"] == "porthole-staging"
+
+
+async def test_cache_ttl_is_honored():
+    params = {"region": "tor1", "metric": "do.droplets.cpu_utilization", "agg": "avg", "range": "30m"}
+    async with AppEnv(base_env(PORTHOLE_CACHE_TTL_S="5")) as e:
+        assert (await e.client.get("/api/insights/range", params=params)).json()["cached"] is False
+        await e.clock.advance(4)
+        assert (await e.client.get("/api/insights/range", params=params)).json()["cached"] is True
+        await e.clock.advance(2)
+        assert (await e.client.get("/api/insights/range", params=params)).json()["cached"] is False
+
+
+async def test_log_level_filters_the_request_lines():
+    async with AppEnv(base_env(PORTHOLE_LOG_LEVEL="ERROR")) as e:
+        await e.client.get("/api/config")
+        assert not [line for line in e.log_lines() if line["severity_text"] in ("INFO", "WARN")]
+        assert (await e.client.get("/api/logs/own")).json()["records"] == []
+
+
+async def test_public_url_context_and_link_overrides_reach_the_config():
+    env = base_env(PORTHOLE_PUBLIC_URL="https://demo.example.test/", PORTHOLE_DO_CONTEXT="00ab12",
+                   PORTHOLE_DEEPLINKS_JSON=json.dumps({"droplet": "https://cloud.digitalocean.com/droplets/{id}"}))
+    async with AppEnv(env) as e:
+        cfg = (await e.client.get("/api/config")).json()
+        assert cfg["public_url"] == "https://demo.example.test"
+        assert cfg["hook_url"] == "https://demo.example.test/hooks/insights"
+        assert cfg["links"]["insights.metrics"]["url"].startswith("https://cloud.digitalocean.com/insights/metrics?i=00ab12&")
+        t1 = cfg["fleet"]["tentacles"][0]
+        assert t1["link"] == "https://cloud.digitalocean.com/droplets/600000001" and t1["link_verified"] is True
+        channels = (await e.client.get("/api/insights/alerts")).json()["channels"]
+        hook = next(c for c in channels if c["type"] == "webhook")
+        assert hook["points_here"] is True  # the fake's channel URL follows the public URL
+
+
+async def test_phase_two_secrets_are_scrubbed_everywhere():
+    secrets = {"PORTHOLE_BRAIN_TOKEN": "brain-token-value-0001", "PORTHOLE_MCP_KEY": "mcp-key-value-0001",
+               "PORTHOLE_GATEWAY_MCP_URL": "https://gateway.example/mcp/s-0001"}
+    async with AppEnv(base_env(**secrets, OTEL_EXPORTER_OTLP_HEADERS="api-key=otlp-secret-0001")) as e:
+        for secret in (*secrets.values(), "otlp-secret-0001"):
+            e.deps.log.info(f"leak attempt {secret}")
+            e.deps.trace.record(target="tentacle", method="GET", path="/health", status=200,
+                                text=f'{{"echo": "{secret}"}}')
+            assert secret not in e.stdout.getvalue()
+            assert secret not in (await e.client.get("/api/trace")).text
+            assert secret not in (await e.client.get("/api/logs/own")).text
 
 
 def test_env_example_lists_every_variable():

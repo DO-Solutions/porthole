@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import inspect
 
-import pytest
 from conftest import AppEnv, base_env
 
 from porthole.brain.adapter import BrainAdapter
@@ -198,9 +197,8 @@ def test_deckhand_follows_the_protocol():
     assert inspect.isasyncgenfunction(Deckhand.events) and Deckhand.name == "deckhand"
 
 
-@pytest.mark.parametrize("n", [21])
-async def test_twenty_sessions_are_kept(env, n):
+async def test_twenty_sessions_are_kept(env):
     ctx = {"fleet": {}, "region_default": "tor1", "tools": [], "actor": "visitor"}
-    ids = [(await env.deps.brain.start("what lives under the sea?", ctx))["id"] for _ in range(n)]
+    ids = [(await env.deps.brain.start("what lives under the sea?", ctx))["id"] for _ in range(21)]
     await env.settle()
     assert len(env.deps.brain.sessions) == 20 and ids[0] not in env.deps.brain.sessions

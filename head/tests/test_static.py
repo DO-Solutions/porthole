@@ -228,6 +228,14 @@ def test_static_readme_records_the_validator_run():
     assert "## Palette validator" in text and "#081f1e" in text and "## Slot order" in text
 
 
+async def test_favicon_and_missing_pages(env):
+    r = await env.client.get("/favicon.ico")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
+    assert r.content.lstrip().startswith(b"<svg") or b"<svg" in r.content[:300]
+    assert (await env.client.get("/nowhere")).status_code == 404
+    assert (await env.client.get("/static/js/nope.js")).status_code == 404
+
+
 def test_all_nine_pages_exist():
     assert len(PAGES) == 9 and built_pages() == list(PAGES.values())
 

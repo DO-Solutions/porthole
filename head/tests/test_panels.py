@@ -240,6 +240,44 @@ async def test_chain_runs_listed_with_trace_ids(env):
     assert body["traces_link"]["verified"] is True
 
 
+async def test_dashboard_routes(env):
+    """The committed dashboard: the sidecar listing, one chart run through the fleet-pinned template, the file."""
+    body = (await env.client.get("/api/dashboards/krakens-eye")).json()
+    assert body["file_present"] is True and body["raw"] is None
+    assert body["file_url"] == "/watcher/dashboards/krakens-eye.json"
+    charts = body["sidecar"]["charts"]
+    assert charts[0]["title"] == "Tentacle CPU" and body["sidecar"]["variables"][0]["name"] == "tentacle"
+    assert body["dashboards_link"]["verified"] is True
+    run = (await env.client.get("/api/dashboards/krakens-eye/run", params={"index": 0, "region": "tor1"})).json()
+    assert run["chart"]["title"] == "Tentacle CPU" and run["unit"] == "percent"
+    assert 'resource_region_slug="tor1"' in run["promql"] and "kraken-tentacle-1|kraken-tentacle-2" in run["promql"]
+    assert {s["entity"] for s in run["series"]} == {"kraken-tentacle-1", "kraken-tentacle-2"}
+    both = (await env.client.get("/api/dashboards/krakens-eye/run", params={"index": 0, "region": "both"})).json()
+    assert set(both["regions"]) == {"tor1", "syd1"} and "kraken-tentacle-3" in both["regions"]["syd1"]["promql"]
+    logs_chart = next(i for i, c in enumerate(charts) if c["promql"] is None)
+    for params, code in (({"index": logs_chart}, "no_query"), ({"index": 99}, "no_query"),
+                         ({"index": 0, "range": "2h"}, "bad_range"), ({"index": 0, "region": "ams3"}, "bad_region")):
+        r = await env.client.get("/api/dashboards/krakens-eye/run", params=params)
+        assert r.status_code == 400 and r.json()["error"]["code"] == code, params
+    assert (await env.client.get("/api/dashboards/krakens-eye/run")).status_code == 400  # index is required
+    f = await env.client.get("/watcher/dashboards/krakens-eye.json")
+    assert f.status_code == 200 and f.headers["content-type"].startswith("application/json")
+    assert f.headers["content-disposition"] == 'attachment; filename="krakens-eye.json"'
+    assert f.json()["name"] == "Kraken's Eye"
+
+
+async def test_dashboard_page_without_the_sidecar(env, tmp_path):
+    (tmp_path / "dashboards").mkdir()
+    (tmp_path / "dashboards" / "krakens-eye.json").write_text('{"name": "raw only"}')
+    env.deps.watcher_dir = tmp_path
+    body = (await env.client.get("/api/dashboards/krakens-eye")).json()
+    assert body["sidecar"] is None and json.loads(body["raw"]) == {"name": "raw only"} and body["file_present"]
+    r = await env.client.get("/api/dashboards/krakens-eye/run", params={"index": 0})
+    assert r.status_code == 404 and r.json()["error"]["code"] == "no_sidecar"
+    (tmp_path / "dashboards" / "krakens-eye.json").unlink()
+    assert (await env.client.get("/watcher/dashboards/krakens-eye.json")).status_code == 404
+
+
 async def test_probes_fall_back_to_family_metrics():
     async with AppEnv(reject_metricless=True) as e:
         snap = (await e.client.get("/api/fleet")).json()
