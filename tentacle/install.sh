@@ -33,7 +33,9 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # 1. packages (cloud-init may still hold the apt lock on first boot)
-if ! python3 -m venv --help >/dev/null 2>&1 || ! command -v curl >/dev/null; then
+# `python3 -m venv --help` succeeds on Ubuntu even when ensurepip is missing (the venv then fails to create), so
+# test ensurepip itself.
+if ! python3 -c 'import ensurepip' >/dev/null 2>&1 || ! command -v curl >/dev/null; then
   log "installing python3-venv"
   apt-get -o DPkg::Lock::Timeout=600 update -q
   apt-get -o DPkg::Lock::Timeout=600 install -y -q python3-venv curl ca-certificates
@@ -62,7 +64,8 @@ fi
 install -o root -g root -m 0644 "$SRC/tentacle.py" "$SRC/requirements.txt" "$APP/"
 
 # 4. virtualenv and pinned dependencies
-[ -x "$APP/venv/bin/python" ] || python3 -m venv "$APP/venv"
+# A venv created without ensurepip has a python but no pip; treat that as absent and rebuild it.
+[ -x "$APP/venv/bin/pip" ] || { rm -rf "$APP/venv"; python3 -m venv "$APP/venv"; }
 "$APP/venv/bin/pip" install -q --disable-pip-version-check -r "$APP/requirements.txt"
 
 # 5. environment file (written once)
