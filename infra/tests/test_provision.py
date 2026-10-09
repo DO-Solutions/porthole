@@ -168,6 +168,16 @@ def test_an_api_error_stops_the_run_with_a_short_message(run, world) -> None:
     assert "Traceback" not in result.err
 
 
+def test_a_failed_optional_step_is_skipped_and_the_run_goes_on(run, world, out_dir: Path) -> None:
+    world.fail[("POST", "/v2/spaces/keys")] = 500
+    result = run("provision")
+    assert result.code == 0, result.err
+    assert "warning: optional step spaces failed and was skipped: POST /v2/spaces/keys -> HTTP 500" in result.err
+    state = resources(out_dir)
+    assert "spaces_bucket" not in state and state["app"]["created"] is True
+    assert (out_dir / "porthole.env").exists()
+
+
 def test_user_data_carries_the_variables_right_after_the_shebang(run, world, out_dir: Path) -> None:
     assert run("provision", "--only", "project,network,database,functions,droplets").code == 0
     bodies = {b["name"]: b for b in world.body("POST", "/v2/droplets")}

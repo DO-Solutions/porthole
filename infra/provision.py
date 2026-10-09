@@ -67,7 +67,12 @@ def main(argv: list[str] | None = None, *, env: Mapping[str, str] | None = None,
             ctx.step = step.name
             numbers = ", ".join(str(n) for n, _ in step.design)
             print(f"== {step.name} (design step {numbers})")
-            steps.run(step, ctx)
+            try:
+                steps.run(step, ctx)
+            except (APIError, StepError, WaitTimeout) as e:
+                if not step.optional:
+                    raise
+                print(f"warning: optional step {step.name} failed and was skipped: {e}", file=sys.stderr)
     except (APIError, StepError, WaitTimeout, SecretLeak) as e:
         print(f"error in step {ctx.step}: {e}", file=sys.stderr)
         return 1

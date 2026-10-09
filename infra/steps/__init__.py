@@ -16,6 +16,7 @@ class Step:
     module: str
     design: tuple[tuple[int, str], ...]  # (design step number, what it creates), one per design step
     requires: tuple[str, ...] = ()
+    optional: bool = False             # a failure prints a warning and the run goes on
 
 
 STEPS: tuple[Step, ...] = (
@@ -39,7 +40,8 @@ STEPS: tuple[Step, ...] = (
     Step("doks", "steps.doks", (
         (8, "kraken-doks in tor1 (one s-2vcpu-2gb node) and infra/k8s/kraken.yaml applied with kubectl"),)),
     Step("spaces", "steps.spaces", (
-        (10, "Spaces key kraken-spaces and bucket kraken-<6 hex> in tor1 (one signed S3 PUT)"),)),
+        (10, "Spaces key kraken-spaces and bucket kraken-<6 hex> in tor1 (one signed S3 PUT); optional"),),
+         optional=True),
     Step("registry", "steps.registry", (
         (11, 'the team\'s container registry when there is one, else "kraken" on the starter tier'),)),
     Step("agent", "steps.agent", (

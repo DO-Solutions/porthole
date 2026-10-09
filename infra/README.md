@@ -43,7 +43,7 @@ and the Function URL at first boot. `--plan` prints the same list.
 | 7 | 5 | droplets | `kraken-tentacle-1` and `-2` (tor1), `-3` (syd1): s-1vcpu-1gb, Ubuntu 24.04, monitoring on |
 | 8 | 6 | lb | `kraken-lb` (tor1): HTTP 80 to port 8800 on tentacle-1 and -2, health check `/health` |
 | 9 | 8 | doks | `kraken-doks` (tor1, one s-2vcpu-2gb node, no HA control plane) and `infra/k8s/kraken.yaml` |
-| 10 | 10 | spaces | Spaces key `kraken-spaces` and bucket `kraken-<6 hex>` in tor1 |
+| 10 | 10 | spaces | Spaces key `kraken-spaces` and bucket `kraken-<6 hex>` in tor1; optional, see below |
 | 11 | 11 | registry | the team's registry when there is one (never deleted), else `kraken` on the starter tier |
 | 12 | 12 | agent | Harness Runtime session `kraken-brain` (mars-1vcpu-1gb), created and paused with doctl |
 | 13 | 13 | app | the app from `.do/app.yaml` with its SECRET values; waits for the first deployment |
@@ -79,6 +79,9 @@ python infra/fleet.py                       # rewrite infra/out/porthole.env fro
 python infra/teardown.py                    # list what would be deleted; no API call
 python infra/teardown.py --yes              # delete it
 ```
+
+The spaces step is optional: when it fails, the run prints a warning and goes on, because nothing else depends
+on the bucket. Every other failed step stops the run.
 
 Each action prints one line (`exists ...`, `created ...`, or in a dry run `would create ... (POST /v2/...)`). An
 API error stops the run with exit code 1 and a one-line message; a missing variable exits with code 2.
