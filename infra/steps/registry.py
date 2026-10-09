@@ -11,9 +11,21 @@ from steps.common import Context
 NAME = "kraken"
 
 
-def ensure_registry(ctx: Context) -> None:
+def _find_registry(ctx: Context) -> dict | None:
+    """A team may hold several registries now; the single-registry endpoint then answers 412.
+
+    Prefer the multi-registry listing and pick the one named "kraken" if it exists, else the first; fall back to the
+    legacy endpoint for teams that still have at most one."""
+    listing = ctx.api.get("/v2/registries", missing_ok=True)
+    registries = (listing or {}).get("registries") or []
+    if registries:
+        return next((r for r in registries if r.get("name") == NAME), registries[0])
     answer = ctx.api.get("/v2/registry", missing_ok=True)
-    found = (answer or {}).get("registry")
+    return (answer or {}).get("registry")
+
+
+def ensure_registry(ctx: Context) -> None:
+    found = _find_registry(ctx)
     body = {"name": NAME, "subscription_tier_slug": "starter"}
     registry, entry = ctx.resource("registry", "registry", found.get("name") if found else NAME, found,
                                    partial(ctx.create, "/v2/registry", body, "registry",

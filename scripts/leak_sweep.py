@@ -19,7 +19,11 @@ PATTERNS = [
     ("lab secret path", re.compile(r"secret/", re.IGNORECASE)),
     # Extra private names to sweep for come from the environment (comma separated), so the public
     # repo never has to list them: LEAK_SWEEP_NAMES="host-a,host-b" python3 scripts/leak_sweep.py
-    *[("private name", re.compile(re.escape(n.strip()), re.IGNORECASE)) for n in os.environ.get("LEAK_SWEEP_NAMES", "").split(",") if n.strip()],
+    *[
+        ("private name", re.compile(re.escape(name.strip()), re.IGNORECASE))
+        for name in os.environ.get("LEAK_SWEEP_NAMES", "").split(",")
+        if name.strip()
+    ],
     ("cloud access key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("Slack webhook", re.compile(r"hooks\.slack\.com/services/T[0-9A-Z]{6,}/B[0-9A-Z]{6,}/[0-9A-Za-z]{16,}")),
 ]
