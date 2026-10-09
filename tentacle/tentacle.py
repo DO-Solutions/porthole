@@ -606,7 +606,9 @@ def create_app(settings: Settings | None = None, span_exporter=None, log_exporte
         return {"name": settings.name, "uptime_s": round(time.time() - t.started, 1),
                 "running": [r.view() for r in t.scenarios.running()],
                 "load1": round(os.getloadavg()[0], 2),
-                "mem_pct": round(100 * (total - avail) / total, 1) if total and avail is not None else None}
+                "mem_pct": round(100 * (total - avail) / total, 1) if total and avail is not None else None,
+                "mem_avail_mb": avail // MiB if avail is not None else None,
+                "mem_total_mb": total // MiB if total else None}
 
     @app.get("/scenarios")
     def scenarios() -> dict:

@@ -300,6 +300,9 @@ async def test_fleet_snapshot_shape(env):
     snap = (await env.client.get("/api/fleet")).json()
     t1 = snap["tentacles"][0]
     assert t1["reachable"] and t1["health"]["mem_pct"] > 0 and t1["seen_in_insights"] is True
+    assert (t1["health"]["mem_avail_mb"], t1["health"]["mem_total_mb"]) == (590, 961)
+    t3 = snap["tentacles"][2]  # not redeployed since mem_avail_mb: the fields are there, empty
+    assert t3["health"]["mem_avail_mb"] is None and t3["health"]["mem_total_mb"] is None and t3["health"]["mem_pct"]
     assert snap["head"]["seen_in_insights"] is True and snap["probe_mode"] == "selector"
     assert snap["sea"]["functions"]["seen_in_insights"] is None  # no URN to match in selector mode
     env.fleet.by_name("kraken-tentacle-2").unreachable = True

@@ -69,11 +69,26 @@ def test_health_is_open_and_shaped(env):
     r = env.client.get("/health")
     assert r.status_code == 200
     body = r.json()
-    assert set(body) == {"name", "uptime_s", "running", "load1", "mem_pct"}
+    assert set(body) == {"name", "uptime_s", "running", "load1", "mem_pct", "mem_avail_mb", "mem_total_mb"}
     assert body["name"] == "tentacle-a"
     assert isinstance(body["running"], list)
     assert isinstance(body["load1"], float)
     assert 0 < body["mem_pct"] < 100
+    assert isinstance(body["mem_avail_mb"], int) and 0 < body["mem_avail_mb"] < body["mem_total_mb"]
+
+
+def test_health_memory_on_a_1_gb_droplet(env, monkeypatch):
+    """The tor1 tentacles on 2026-10-09: MemTotal 984556 kB, about 590 MB available with nothing running. The
+    head sizes the ballast ask from mem_avail_mb and parses "MemAvailable N MB" out of the guard's 409."""
+    meminfo = {"MemTotal": 984556 * 1024, "MemAvailable": 604160 * 1024}
+    monkeypatch.setattr(tentacle, "_mem_info", lambda: dict(meminfo))
+    monkeypatch.setattr(tentacle.Tentacle, "memory", lambda self, run: {"held_mb": run.params["mb"]})
+    body = env.client.get("/health").json()
+    assert (body["mem_avail_mb"], body["mem_total_mb"], body["mem_pct"]) == (590, 961, 38.6)
+    r = env.client.post("/scenario/memory", params={"mb": 500, "seconds": 1}, headers=AUTH)
+    assert r.status_code == 409
+    assert r.json()["detail"] == "500 MB would leave less than 100 MB available (MemAvailable 590 MB)"
+    assert env.client.post("/scenario/memory", params={"mb": 440, "seconds": 1}, headers=AUTH).status_code == 202
 
 
 @pytest.mark.parametrize("method,path", [

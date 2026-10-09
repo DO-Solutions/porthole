@@ -16,6 +16,8 @@ from porthole.config import TentacleSpec
 
 POLL_S = 10.0
 ERROR_RECORD_EVERY_S = 60.0
+# what the fleet view keeps of a tentacle's /health; a tentacle older than the memory fields leaves them None
+HEALTH_KEYS = ("uptime_s", "load1", "mem_pct", "mem_avail_mb", "mem_total_mb")
 
 
 class TentacleError(Exception):
@@ -140,7 +142,7 @@ class FleetPoller:
             tentacles.append({
                 "name": t.name, "display": t.display, "region": t.region, "slot": t.slot, "reachable": res["reachable"],
                 "error": res["error"],
-                "health": {k: health.get(k) for k in ("uptime_s", "load1", "mem_pct")} if res["health"] else None,
+                "health": {k: health.get(k) for k in HEALTH_KEYS} if res["health"] else None,
                 "running": [r.get("id") for r in health.get("running") or []],
                 "seen_in_insights": probe.get("seen"), "seen_reason": probe.get("reason"),
                 "seen_checked_at": probes.get("checked_at"), "link": link["url"], "link_verified": link["verified"],

@@ -38,6 +38,11 @@ class StepSkipped(Exception):
     pass
 
 
+def with_note(error: str, note: str) -> str:
+    """A failed step's text: the error, then the note the step had written when it adds something."""
+    return f"{error} ({note})" if note and note != error else error
+
+
 @dataclass(frozen=True)
 class StepSpec:
     name: str
@@ -65,6 +70,10 @@ class VoyageSpec:
 
 @dataclass
 class StepRecord:
+    """One planned step of a run. `text` is the step's latest note while it runs. When the step fails or times
+    out, `text` becomes the error, then the note it had written in parentheses when there was one and it says
+    something else: "no tentacle accepted memory (started nothing; refused: ...)". A skipped step keeps the
+    reason it was skipped."""
     name: str
     title: str
     timeout_s: float
@@ -169,13 +178,13 @@ class VoyageContext:
         except StepSkipped as e:
             rec.status, rec.text = "skipped", str(e)
         except StepTimeout as e:
-            rec.status, rec.text = "timed_out", rec.text or str(e)
+            rec.status, rec.text = "timed_out", with_note(str(e), rec.text)
             if not rec.optional:
                 self._close(rec)
                 raise VoyageFailed(f"{name} timed out after {rec.timeout_s:.0f} s") from None
         except (TentacleError, InsightsError, ApiError, BudgetExhausted, VoyageFailed) as e:
             rec.status = "failed"
-            rec.text = getattr(e, "message", None) or str(e)
+            rec.text = with_note(getattr(e, "message", None) or str(e), rec.text)
             self._close(rec)
             raise VoyageFailed(f"{name}: {rec.text}") from None
         else:
@@ -200,7 +209,7 @@ class VoyageContext:
                 rec.text = waiting(value)
                 self.engine.publish(self.run, rec)
             if self.clock.monotonic() - rec.started_mono + every_s > rec.timeout_s:
-                raise StepTimeout(rec.text or f"still waiting after {rec.timeout_s:.0f} s")
+                raise StepTimeout(f"still waiting after {rec.timeout_s:.0f} s")
             await self.clock.sleep(every_s)
 
     async def insights(self, method: str, *args: Any, **kwargs: Any) -> Any:

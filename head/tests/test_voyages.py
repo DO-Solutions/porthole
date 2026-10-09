@@ -86,6 +86,7 @@ async def test_step_timeout_fails_the_voyage_and_cleans_up(env):
     assert await env.run_until(lambda: run.status != "sailing")
     assert run.status == "failed" and "webhook-delivered timed out" in run.error
     assert run.step("webhook-delivered").status == "timed_out"
+    assert run.step("webhook-delivered").text == "still waiting after 600 s (waiting for a delivery to /hooks/insights)"
     assert [s.status for s in run.steps[6:]] == ["skipped"] * 5
     cpu = env.fleet.by_name("kraken-tentacle-1").runs[run.scenarios_started[0]["run_id"]]
     assert cpu.status in ("stopped", "finished")  # cleanup stops it if the burn is still going
@@ -209,3 +210,56 @@ async def test_chain_points_at_the_heads_own_span(env):
     assert run.trace_id and run.summary["head_trace_id"] == run.trace_id
     assert run.step("own-span").data["span"] is not None
     assert run.step("link").artifacts[0]["verified"] is True
+
+
+def memory_runs(env, name):
+    return [r for r in env.fleet.by_name(name).runs.values() if r.name == "memory"]
+
+
+async def test_ballast_sizes_the_memory_ask_to_what_the_tentacle_has(env):
+    """B-032, run v-09c93d: a 1 GB tentacle has about 590 MB available and refuses anything that leaves it under
+    100 MB, so the old fixed 500 MB ask could never be accepted. 590 - 150 = 440."""
+    run = await sail(env, "ballast")
+    assert await env.run_until(lambda: run.status != "sailing")
+    assert run.status == "done", run.error
+    for name in ("kraken-tentacle-1", "kraken-tentacle-2"):
+        assert [r.params["mb"] for r in memory_runs(env, name)] == [440]
+        assert env.fleet.by_name(name).requests.count(("POST", "/scenario/memory")) == 1  # sized, never refused
+    assert run.step("start-memory").text == ("tentacle-1: 440 MB (asked 500, 590 MB available), "
+                                             "tentacle-2: 440 MB (asked 500, 590 MB available)")
+    assert run.summary["memory_held_mb"] == {"tentacle-1": 440, "tentacle-2": 440}
+    assert run.step("summary").text.startswith("memory held {'tentacle-1': 440, 'tentacle-2': 440} MB, peaks ")
+
+
+async def test_ballast_falls_back_to_the_409_of_an_older_tentacle(env):
+    """A tentacle from before mem_avail_mb: ask the full 500, read MemAvailable out of the 409, ask N - 150 once."""
+    t2 = env.fleet.by_name("kraken-tentacle-2")
+    t2.reports_mem_avail, t2.mem_base_mb = False, t2.mem_base_mb + 190  # 400 MB available
+    await env.advance(11)  # the fleet view polls once more
+    run = await sail(env, "ballast")
+    assert await env.run_until(lambda: run.status != "sailing")
+    assert run.status == "done", run.error
+    assert t2.requests.count(("POST", "/scenario/memory")) == 2
+    assert [r.params["mb"] for r in memory_runs(env, "kraken-tentacle-2")] == [250]
+    assert run.step("start-memory").text.endswith("tentacle-2: 250 MB (asked 500, 400 MB available)")
+    assert run.summary["memory_held_mb"] == {"tentacle-1": 440, "tentacle-2": 250}
+
+
+@pytest.mark.parametrize("avail,ask", [(590, 440), (900, 500), (400, 250), (200, 64), (100, 64)])
+def test_memory_ask_leaves_150_mb_and_never_drops_below_the_minimum(avail, ask):
+    from porthole.voyages_metrics import memory_ask
+    assert memory_ask(500, avail) == ask
+
+
+async def test_a_failed_step_keeps_its_note_next_to_the_error(env):
+    """v-09c93d kept only "no tentacle accepted memory"; the refusals the step had noted were overwritten."""
+    for name in ("kraken-tentacle-1", "kraken-tentacle-2"):
+        env.fleet.by_name(name).refuse_memory = True
+    run = await sail(env, "ballast")
+    assert await env.run_until(lambda: run.status != "sailing", 300)
+    rec = run.step("start-memory")
+    assert run.status == "failed" and rec.status == "failed"
+    assert rec.text.startswith("no tentacle accepted memory (started nothing; refused: tentacle-1 memory: ")
+    assert rec.text.count("less than 100 MB available (MemAvailable 590 MB)") == 2 and rec.text.endswith(")")
+    assert run.error == f"start-memory: {rec.text}"
+    assert (await env.client.get(f"/api/voyages/{run.id}")).json()["steps"][0]["text"] == rec.text

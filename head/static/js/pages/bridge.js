@@ -16,7 +16,8 @@ function renderFleet(snap) {
   const list = clear($("#fleet-tentacles"));
   for (const t of snap.tentacles || []) {
     const h = t.health || {};
-    const stats = t.reachable ? `load ${formatValue(h.load1, "plain")}  mem ${formatValue(h.mem_pct, "percent")}`
+    const room = Number.isFinite(h.mem_avail_mb) ? `  room ${h.mem_avail_mb} MB` : "";
+    const stats = t.reachable ? `load ${formatValue(h.load1, "plain")}  mem ${formatValue(h.mem_pct, "percent")}${room}`
       : `unreachable: ${t.error || ""}`;
     const running = (t.running || []).length;
     list.append(el("li", {}, dot(t.seen_in_insights, t.seen_checked_at, t.seen_reason),

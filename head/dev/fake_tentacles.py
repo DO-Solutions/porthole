@@ -91,8 +91,10 @@ class FakeTentacle:
         self.name, self.url, self.peer_url, self.pg, self.key = name, url, peer_url, pg, key
         self.runs: dict[str, FakeRun] = {}
         self.started_at = started_at or datetime.now(timezone.utc)
-        self.mem_total_mb, self.mem_base_mb, self.disk_free_mb = 1024, 300, 20_000
+        # a 1 GB Droplet as the tor1 tentacles report it: MemTotal 961 MB, 590 MB available with nothing running
+        self.mem_total_mb, self.mem_base_mb, self.disk_free_mb = 961, 371, 20_000
         self.unreachable = self.refuse_memory = self.refuse_disk = False
+        self.reports_mem_avail = True  # False answers /health as a tentacle from before mem_avail_mb did
         self.requests: list[tuple[str, str]] = []
         self.auth_seen: list[str | None] = []
 
@@ -105,16 +107,22 @@ class FakeTentacle:
     def running(self) -> list[FakeRun]:
         return [r for r in self.runs.values() if r.status == "running"]
 
+    def mem_avail_mb(self) -> int:
+        held = sum(r.params["mb"] for r in self.running() if r.name == "memory")
+        return self.mem_total_mb - self.mem_base_mb - held
+
     def handle(self, request: httpx.Request, now: datetime) -> httpx.Response:
         self.refresh(now)
         path = request.url.path
         self.requests.append((request.method, path))
         if request.method == "GET" and path == "/health":
-            held = sum(r.params["mb"] for r in self.running() if r.name == "memory")
             cpu = sum(r.params["workers"] for r in self.running() if r.name == "cpu")
-            return _json(200, {"name": self.name, "uptime_s": round((now - self.started_at).total_seconds(), 1),
-                               "running": [r.view(now) for r in self.running()], "load1": round(0.04 + cpu, 2),
-                               "mem_pct": round(100 * (self.mem_base_mb + held) / self.mem_total_mb, 1)})
+            body = {"name": self.name, "uptime_s": round((now - self.started_at).total_seconds(), 1),
+                    "running": [r.view(now) for r in self.running()], "load1": round(0.04 + cpu, 2),
+                    "mem_pct": round(100 * (self.mem_total_mb - self.mem_avail_mb()) / self.mem_total_mb, 1)}
+            if self.reports_mem_avail:
+                body.update(mem_avail_mb=self.mem_avail_mb(), mem_total_mb=self.mem_total_mb)
+            return _json(200, body)
         if request.method == "GET" and path == "/scenarios":
             runs = sorted(self.runs.values(), key=lambda r: r.started_at, reverse=True)
             return _json(200, {"running": [r.view(now) for r in runs if r.status == "running"],
@@ -163,9 +171,8 @@ class FakeTentacle:
         if name == "pg" and not self.pg:
             return _json(400, {"detail": "PG_DSN is not configured"})
         if name == "memory":
-            held = sum(r.params["mb"] for r in self.running() if r.name == "memory")
-            avail = self.mem_total_mb - self.mem_base_mb - held
-            if self.refuse_memory or params["mb"] > avail - 100:
+            avail = self.mem_avail_mb()
+            if self.refuse_memory or params["mb"] > avail - 100:  # tentacle.py's guard
                 return _json(409, {"detail": f"{params['mb']} MB would leave less than 100 MB available "
                                              f"(MemAvailable {avail} MB)"})
         if name == "disk" and (self.refuse_disk or params["mb"] > self.disk_free_mb - 1024):
@@ -192,9 +199,12 @@ class FakeFleet:
         self.tentacles: dict[str, FakeTentacle] = {}
         urls = {t.name: t.url for t in fleet.tentacles}
         for t in fleet.tentacles:
-            self.tentacles[urlsplit(t.url).netloc] = FakeTentacle(
-                t.name, t.url, urls.get(t.peer or "", ""), pg="database" in fleet.sea, key=key,
-                started_at=self.now() - timedelta(hours=6))
+            fake = FakeTentacle(t.name, t.url, urls.get(t.peer or "", ""), pg="database" in fleet.sea, key=key,
+                                started_at=self.now() - timedelta(hours=6))
+            # the tentacle without a peer (Sydney in the fixture) has not been redeployed since mem_avail_mb, so
+            # the head's fallbacks for an older tentacle stay covered
+            fake.reports_mem_avail = bool(t.peer)
+            self.tentacles[urlsplit(t.url).netloc] = fake
         lb = fleet.sea.get("load_balancer")
         self.lb_host = str(lb.extra.get("ip")) if lb and lb.extra.get("ip") else None
         fn = fleet.sea.get("functions")

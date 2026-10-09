@@ -295,3 +295,12 @@ wontfix. Never write an observation nobody made.
 - reproduce: any churn or alert round trip run; the timelines record every timestamp
 - status: observed; keep adding runs to the table in the report
 
+## B-032  Ballast fails at start-memory: a 1 GB tentacle never accepts 500 MB, and the failed step lost its refusals     (fixed)
+- when: 2026-10-09T05:38Z, run v-09c93d (the overnight voyage runner)   where: head voyage `ballast` on kraken-tentacle-1 and -2, tor1; tentacle `POST /scenario/memory`; head `VoyageContext.step`   finding: none (our bug, two of them)
+- request we made / received: `POST /scenario/memory?seconds=300&mb=500` on both tor1 tentacles
+- response: the run failed at its first step with `start-memory: no tentacle accepted memory`; the two refusals themselves were not kept
+- expected: memory held on both tor1 tentacles, and a failed step's record that says why it failed
+- observed: both tor1 tentacles are 1 GB Droplets (`MemTotal` 984556 kB) with about 590 MB `MemAvailable` and nothing running. The tentacle's guard answers 409 when `mb * MiB > MemAvailable - 100 MiB`, so the fixed 500 MB ask can never pass on this fleet (500 > 590 - 100). Ballast did note every refusal (`started nothing; refused: ...`) before raising `VoyageFailed`, and `VoyageContext.step` then replaced the step's text with the exception message
+- reproduce: the fake tentacles now have 590 MB available (961 MB total) and enforce the same 100 MB guard; with the old ballast, the ballast voyage tests fail, and with the old step handler, `test_a_failed_step_keeps_its_note_next_to_the_error` fails
+- status: fixed in `fix(head,tentacle): size ballast's memory ask to each tentacle and keep a failed step's note`. The tentacle's `/health` reports `mem_avail_mb` and `mem_total_mb` next to `mem_pct`; ballast asks each tentacle for `min(500, mem_avail_mb - 150)` MB, at least 64, which is 440 MB here, and notes `tentacle-1: 440 MB (asked 500, 590 MB available)`. A tentacle not yet redeployed is asked for 500 and, on a 409 carrying `MemAvailable N MB`, once more for `N - 150`. A failed or timed-out step keeps its note in parentheses after the error. Not yet re-run on the live fleet
+

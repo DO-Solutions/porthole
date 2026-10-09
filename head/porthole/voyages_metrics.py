@@ -5,18 +5,25 @@ resolved, and when each region showed a burn. voyages_catalog.py declares their 
 from __future__ import annotations
 
 import operator
+import re
 from datetime import timedelta
 from typing import Any
 
 from porthole import promql
 from porthole.clock import hhmm, iso, parse_iso
 from porthole.panels_alerts import rule_view
+from porthole.scenarios import CATALOG as SCENARIOS
 from porthole.security import ApiError
 from porthole.voyages import VoyageFailed
 
 WINDOW_S = {"1m": 60, "5m": 300, "10m": 600, "15m": 900, "30m": 1800, "1h": 3600}
 OPS = {">": operator.gt, ">=": operator.ge, "<": operator.lt, "<=": operator.le, "=": operator.eq, "!=": operator.ne}
 CPU = "do.droplets.cpu_utilization"
+# Ballast asks each tentacle for up to 500 MB and leaves it 150 MB, 50 more than the tentacle's own 100 MB guard
+# (a 1 GB Droplet has about 590 MB available, B-032). The floor is the memory scenario's minimum.
+BALLAST_MEMORY_MB, BALLAST_SPARE_MB = 500, 150
+MEMORY_FLOOR_MB = int(next(p.low for p in SCENARIOS["memory"].params if p.name == "mb"))
+MEM_AVAILABLE = re.compile(r"MemAvailable (\d+) MB")
 
 
 def pct(v: float | None) -> str:
@@ -187,13 +194,56 @@ async def alert_round_trip(ctx: Any) -> dict:
     return summary
 
 
+def memory_ask(requested: int, avail_mb: int) -> int:
+    """What to ask a tentacle with avail_mb available: the request, cut to leave BALLAST_SPARE_MB, not below the
+    scenario's minimum. The tentacle refuses anything that would leave it under 100 MB."""
+    return max(MEMORY_FLOOR_MB, min(requested, avail_mb - BALLAST_SPARE_MB))
+
+
+async def hold_memory(ctx: Any, t: Any, requested: int, seconds: int, avail_mb: int | None) -> tuple[str, int, str]:
+    """Start the memory scenario on one tentacle, sized from the fleet view's mem_avail_mb. A tentacle that does
+    not report it is asked for the full request; if it answers 409 with its MemAvailable, the ask is resized
+    from that and tried once more. Returns the run id, the MB taken and the note part."""
+    ask = requested if avail_mb is None else memory_ask(requested, avail_mb)
+    try:
+        run = await ctx.start(t.name, "memory", {"seconds": seconds, "mb": ask})
+    except ApiError as e:
+        m = MEM_AVAILABLE.search(e.message) if e.status == 409 else None
+        retry = memory_ask(requested, int(m.group(1))) if m else ask
+        if retry >= ask:
+            raise
+        avail_mb, ask = int(m.group(1)), retry
+        run = await ctx.start(t.name, "memory", {"seconds": seconds, "mb": ask})
+    seen = "" if avail_mb is None else f", {avail_mb} MB available"
+    return run["id"], ask, f"{t.display}: {ask} MB (asked {requested}{seen})"
+
+
 async def ballast(ctx: Any) -> dict:
     targets = [t for t in ctx.fleet.tentacles if t.peer][:2] or list(ctx.fleet.tentacles[:2])
     if not targets:
         raise VoyageFailed("the fleet description has no tentacles")
     refused: list[str] = []
-    plan = (("start-memory", "memory", {"seconds": 300, "mb": 500}),
-            ("start-disk", "disk", {"seconds": 300, "mb": 2048}),
+    held: dict[str, int] = {}
+    async with ctx.step("start-memory") as s:
+        snap = ctx.deps.poller.snapshot or {}  # the fleet view from the last poll
+        health = {x["name"]: x.get("health") or {} for x in snap.get("tentacles") or []}
+        started, taken = [], []
+        for t in targets:
+            try:
+                run_id, mb, part = await hold_memory(ctx, t, BALLAST_MEMORY_MB, 300,
+                                                     health.get(t.name, {}).get("mem_avail_mb"))
+            except ApiError as e:
+                refused.append(f"{t.display} memory: {e.message}")
+                continue
+            started.append(run_id)
+            held[t.display] = mb
+            taken.append(part)
+        refusals = f"; refused: {'; '.join(refused)}" if refused else ""
+        s.data["held_mb"] = held
+        s.note(f"{', '.join(taken) or 'started nothing'}{refusals}")
+        if not started:
+            raise VoyageFailed("no tentacle accepted memory")
+    plan = (("start-disk", "disk", {"seconds": 300, "mb": 2048}),
             ("start-network", "network", {"seconds": 180, "mbps": 50}))
     for step, scenario, params in plan:
         async with ctx.step(step) as s:
@@ -232,8 +282,9 @@ async def ballast(ctx: Any) -> dict:
             found[label] = list(body.get("data") or [])
         s.note("; ".join(f"{k}: {', '.join(v) or 'none'}" for k, v in found.items()))
     async with ctx.step("summary") as s:
-        s.note(f"memory peaks {peaks}; labels {found}" + (f"; refused {len(refused)}" if refused else ""))
-    return {"memory_peak_pct": peaks, "labels": found, "refused": refused}
+        s.note(f"memory held {held} MB, peaks {peaks}; labels {found}"
+               + (f"; refused {len(refused)}" if refused else ""))
+    return {"memory_held_mb": held, "memory_peak_pct": peaks, "labels": found, "refused": refused}
 
 
 async def two_seas(ctx: Any) -> dict:

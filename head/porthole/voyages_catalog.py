@@ -40,12 +40,13 @@ CATALOG: dict[str, VoyageSpec] = {v.name: v for v in (
         "ballast", "Ballast", "M2",
         "Loads memory, disk and the private network on the two Toronto tentacles and checks which labels "
         "(filesystem_mountpoint, network_device) Insights attaches to those families.",
-        (StepSpec("start-memory", "memory 500 MB for 300 s", 60), StepSpec("start-disk", "disk 2,048 MB for 300 s", 60),
+        (StepSpec("start-memory", "memory up to 500 MB for 300 s", 60),
+         StepSpec("start-disk", "disk 2,048 MB for 300 s", 60),
          StepSpec("start-network", "network 50 mbps for 180 s", 60),
          StepSpec("watch", "sample the families for 6 minutes", 420),
          StepSpec("labels", "read filesystem_mountpoint and network_device", 120),
          StepSpec("summary", "which labels appeared", 30)),
-        ballast, {}, ("memory_peak_pct", "labels")),
+        ballast, {}, ("memory_held_mb", "memory_peak_pct", "labels")),
     VoyageSpec(
         "two-seas", "Two seas", "M3",
         "Burns CPU in Toronto and Sydney at once and charts both regions: each region answers separately and the "
