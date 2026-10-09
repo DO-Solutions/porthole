@@ -72,6 +72,27 @@ async def test_single_flight_for_concurrent_misses(env):
     assert upstream(env, "query_range") == n + 1
 
 
+async def test_cache_is_bounded_by_bytes_not_only_entries():
+    """Found by the wringer (pass 2): 294 distinct 24 h range entries held 53 MB; a visitor could fill the
+    500-entry cap with heavy metrics and take the 512 MiB instance down. The cache now evicts by JSON size."""
+    from porthole.cache import PanelCache
+    cache = PanelCache(lambda: 0.0, lambda: "now", max_entries=500, max_bytes=10_000)
+    big = {"series": [{"points": [[1760000000 + 60 * i, 1.0] for i in range(150)]}]}  # about 3 KB of JSON
+    assert 2_500 < PanelCache.weight(big) < 3_500
+
+    async def fetch(v: dict = big) -> dict:
+        return v
+
+    for i in range(5):
+        await cache.get(f"range:{i}", fetch, 20)
+    assert cache.bytes <= 10_000 and len(cache._entries) == 3
+    assert cache.peek("range:0") is None and cache.peek("range:1") is None and cache.peek("range:4") is not None
+    await cache.get("huge", lambda: fetch({"series": [{"points": [[i, 1.0] for i in range(2000)]}]}), 20)
+    assert cache.peek("huge") is None and cache.bytes <= 10_000  # a value over the whole budget is not kept
+    cache.invalidate("range:")
+    assert cache.bytes == 0 and cache._entries == {}
+
+
 async def test_cache_waiters_survive_the_first_callers_cancellation():
     """Found by the wringer: cancelling the request that started a fetch cancelled every request sharing it."""
     from porthole.cache import PanelCache

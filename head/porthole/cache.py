@@ -5,6 +5,7 @@ their last good value marked stale with a retry_in; concurrent misses for one ke
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -67,14 +68,31 @@ class _Entry:
     value: Any
     at: float
     fetched_at: str
+    weight: int = 0
+
+
+# Measured on the fixture fleet: a 24 h range entry is 55 KB on the wire and about 390 KB resident for two series,
+# 278 KB and 1.5 MB for eight. Resident memory is roughly six times the JSON size, so 4 MB of JSON is about 25 MB
+# of cache on the 512 MiB instance, which holds every chart the pages draw with room to spare.
+MAX_CACHE_BYTES = 4 * 2**20
 
 
 class PanelCache:
-    def __init__(self, monotonic: Callable[[], float], now_iso: Callable[[], str], max_entries: int = 500):
-        self.monotonic, self.now_iso, self.max_entries = monotonic, now_iso, max_entries
-        self._entries: dict[str, _Entry] = {}
+    def __init__(self, monotonic: Callable[[], float], now_iso: Callable[[], str], max_entries: int = 500,
+                 max_bytes: int = MAX_CACHE_BYTES):
+        self.monotonic, self.now_iso, self.max_entries, self.max_bytes = monotonic, now_iso, max_entries, max_bytes
+        self._entries: dict[str, _Entry] = {}  # insertion order is age order: _store always appends
         self._inflight: dict[str, asyncio.Future] = {}
         self.hits = self.misses = self.stale_served = 0
+        self.bytes = 0
+
+    @staticmethod
+    def weight(value: Any) -> int:
+        """The JSON size of a value, the cheap proxy for what it costs to keep."""
+        try:
+            return len(json.dumps(value, separators=(",", ":"), default=str))
+        except (TypeError, ValueError):
+            return 1024
 
     def peek(self, key: str) -> Any:
         entry = self._entries.get(key)
@@ -82,7 +100,7 @@ class PanelCache:
 
     def invalidate(self, prefix: str = "") -> None:
         for key in [k for k in self._entries if k.startswith(prefix)]:
-            del self._entries[key]
+            self.bytes -= self._entries.pop(key).weight
 
     async def get[T](self, key: str, fetch: Callable[[], Awaitable[T]], ttl: float) -> CacheResult[T]:
         entry = self._entries.get(key)
@@ -124,7 +142,12 @@ class PanelCache:
             self._inflight.pop(key, None)
 
     def _store(self, key: str, entry: _Entry) -> None:
+        old = self._entries.pop(key, None)
+        if old is not None:
+            self.bytes -= old.weight
+        entry.weight = self.weight(entry.value)
         self._entries[key] = entry
-        if len(self._entries) > self.max_entries:
-            oldest = min(self._entries, key=lambda k: self._entries[k].at)
-            del self._entries[oldest]
+        self.bytes += entry.weight
+        while self._entries and (len(self._entries) > self.max_entries or self.bytes > self.max_bytes):
+            oldest = next(iter(self._entries))  # a value larger than the whole budget evicts itself at once
+            self.bytes -= self._entries.pop(oldest).weight

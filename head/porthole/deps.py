@@ -5,8 +5,11 @@ uses the system clock and real HTTP."""
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import functools
 import sys
 from collections.abc import Callable, Coroutine
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -22,6 +25,10 @@ from porthole.sse import Hub
 from porthole.telemetry import Telemetry, instrument_client, setup_telemetry
 
 T = TypeVar("T")
+# Harness calls wait on the network, not the CPU. The loop's default executor gives a 1 vCPU instance five
+# threads, which turns a six-chart page in both mode (12 calls) into three rounds of Insights latency; measured
+# at 550 ms against 310 ms with sixteen threads on a 150 ms fake. The upstream budget still caps the call rate.
+HARNESS_THREADS = 16
 HEAD_DIR = Path(__file__).resolve().parents[1]
 REPO_DIR = HEAD_DIR.parent
 STATIC_DIR = HEAD_DIR / "static"
@@ -60,6 +67,7 @@ class Deps:
                                       headers={"User-Agent": f"porthole/{settings.version}"})
         instrument_client(self.http, self.telemetry)
         self.inflight = 0
+        self.executor = ThreadPoolExecutor(max_workers=HARNESS_THREADS, thread_name_prefix="harness")
         self._tasks: set[asyncio.Task] = set()
         self._starters: list[Callable[[], None]] = []
         self._stoppers: list[Callable[[], Coroutine[Any, Any, None]]] = []
@@ -68,10 +76,11 @@ class Deps:
         self.log.warn(f"rate limited ({kind})", **{"client.address": ip, "retry_after_s": retry})
 
     async def run_sync(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
-        """Run a blocking call (the harness) in a worker thread; contextvars travel with it."""
+        """Run a blocking call (the harness) in the harness thread pool; contextvars travel with it."""
         self.inflight += 1
         try:
-            return await asyncio.to_thread(fn, *args, **kwargs)
+            call = functools.partial(contextvars.copy_context().run, fn, *args, **kwargs)
+            return await asyncio.get_running_loop().run_in_executor(self.executor, call)
         finally:
             self.inflight -= 1
 
@@ -116,6 +125,7 @@ class Deps:
         await self.http.aclose()
         if self.insights is not None:
             self.insights.close()
+        self.executor.shutdown(wait=False, cancel_futures=True)
         self.log.info("porthole down")
         self.telemetry.shutdown()
 

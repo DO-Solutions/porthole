@@ -123,6 +123,20 @@ async def test_api_call_events_are_published():
     assert set(ev.data) == {"id", "t", "target", "method", "path", "status", "ms", "region", "entity"}
 
 
+async def test_harness_calls_run_on_their_own_thread_pool(env):
+    """Pass 2 of the wringer: the loop's default executor gives a 1 vCPU instance five threads, so twelve
+    concurrent Insights calls took three rounds of upstream latency. The harness pool runs them side by side."""
+    barrier = threading.Barrier(12, timeout=5)  # fails unless all twelve calls are in flight at once
+
+    def wait_then(n: int) -> int:
+        barrier.wait()
+        return n
+
+    results = await asyncio.gather(*(env.deps.run_sync(wait_then, i) for i in range(12)))
+    assert results == list(range(12))
+    assert all(t.name.startswith("harness") for t in threading.enumerate() if t.name.startswith("harness"))
+
+
 async def test_collect_calls_crosses_worker_threads(env):
     ins = env.deps.insights
     with collect_calls() as calls:

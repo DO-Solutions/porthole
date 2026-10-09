@@ -4,6 +4,7 @@ Rules are never discovered by listing, because the list omits rules created in t
 Pausing and resuming needs write mode and works only on the fleet's own rules."""
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -76,36 +77,44 @@ class AlertPanels:
                 "write": self.deps.settings.insights_write}
 
     async def _fetch(self) -> dict:
+        """Rules by id side by side, then their instances and the channels side by side: two rounds of upstream
+        latency for 13 calls instead of 13 (measured 2.0 s against 0.35 s at 150 ms a call)."""
         fleet = self.p.fleet
-        rules: list[dict] = []
         errors: list[dict] = []
-        for ref in fleet.watcher.rules:
+
+        async def rule(ref: RuleRef) -> dict:
             try:
                 body, _, _ = await self.p.call("panels.alerts", "get_rule", ref.id)
-                rules.append(rule_view(body.get("alert_rule") or {}, ref))
+                return rule_view(body.get("alert_rule") or {}, ref)
             except (InsightsError, httpx.HTTPError) as e:
                 errors.append({"what": f"rule {ref.id}", **error_info(e)})
-                rules.append({"id": ref.id, "name": ref.name, "purpose": ref.purpose, "target": ref.target,
-                              "status": "unknown", "error": error_info(e)})
+                return {"id": ref.id, "name": ref.name, "purpose": ref.purpose, "target": ref.target,
+                        "status": "unknown", "error": error_info(e)}
+
+        rules = list(await asyncio.gather(*(rule(ref) for ref in fleet.watcher.rules)))
         by_id = {r["id"]: r for r in rules}
-        instances: list[dict] = []
-        for r in rules:
-            if r.get("error"):
-                continue
+
+        async def instances_of(r: dict) -> list[dict]:
             try:
                 body, _, _ = await self.p.call("panels.alerts", "list_instances", rule_id=r["id"], per_page=100)
-                instances += [instance_view(i, by_id, fleet) for i in body.get("alert_instances") or []]
+                return [instance_view(i, by_id, fleet) for i in body.get("alert_instances") or []]
             except (InsightsError, httpx.HTTPError) as e:
                 errors.append({"what": f"instances of {r['id']}", **error_info(e)})
+                return []
+
+        async def channels() -> list[dict]:
+            try:
+                body, _, _ = await self.p.call("panels.alerts", "list_channels")
+                public = self.deps.settings.public_url
+                return [channel_view(c, public) for c in body.get("notification_channels") or []]
+            except (InsightsError, httpx.HTTPError) as e:
+                errors.append({"what": "channels", **error_info(e)})
+                return []
+
+        *per_rule, found = await asyncio.gather(*(instances_of(r) for r in rules if not r.get("error")), channels())
+        instances = [i for batch in per_rule for i in batch]
         instances.sort(key=lambda i: i.get("triggered_at") or "", reverse=True)
-        channels: list[dict] = []
-        try:
-            body, _, _ = await self.p.call("panels.alerts", "list_channels")
-            public = self.deps.settings.public_url
-            channels = [channel_view(c, public) for c in body.get("notification_channels") or []]
-        except (InsightsError, httpx.HTTPError) as e:
-            errors.append({"what": "channels", **error_info(e)})
-        return {"rules": rules, "instances": instances, "channels": channels, "errors": errors}
+        return {"rules": rules, "instances": instances, "channels": found, "errors": errors}
 
     async def set_status(self, rule_id: str, status: str) -> dict:
         """Pause or resume one of the fleet's rules: get it, then PUT its spec without the channel bindings."""
