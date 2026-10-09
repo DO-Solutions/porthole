@@ -96,9 +96,10 @@ def run(world: FakeDO, runner: FakeRunner, env: dict, out_dir: Path, capsys: pyt
 
     def go(tool: str, *argv: str, env: dict | None = None) -> Result:
         module = provision if tool == "provision" else teardown
+        extra = {"sql": world.sql} if tool == "provision" else {}
         code = module.main(list(argv), env=base_env if env is None else env, transport=world.transport(),
                            web_transport=world.web_transport(), runner=runner, which=runner.which,
-                           sleep=lambda _s: None, out_dir=out_dir)
+                           sleep=lambda _s: None, out_dir=out_dir, **extra)
         captured = capsys.readouterr()
         return Result(code, captured.out, captured.err)
 
@@ -113,4 +114,5 @@ def provisioned(run: Callable, world: FakeDO) -> FakeDO:
     world.calls.clear()
     world.bodies.clear()
     world.web_calls.clear()
+    world.sql_calls.clear()
     return world

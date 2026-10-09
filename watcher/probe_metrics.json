@@ -4,7 +4,7 @@
     "tentacle": {"metric": "do.droplets.cpu_utilization", "verified": true, "source": "facts pack, probes in nyc3"},
     "app": {"metric": "do.apps.app_cpu_utilization", "verified": true, "source": "facts pack, tor1 catalog"},
     "load_balancer": {"metric": "do.load_balancers.connections_active", "verified": true, "source": "tor1 catalog, deep-water v-aba9cd 2026-10-09"},
-    "database": {"metric": "do.databases.cpu_utilization", "moved_by": "do.databases.load_avg_1m", "verified": true, "source": "tor1 catalog 2026-10-09; moved_by from deep-water v-670380 (load average 0.16 to 0.97 under 8 clients, CPU 15 to 21 %, B-035)"},
+    "database": {"metric": "do.databases.cpu_utilization", "moved_by": "do.databases.load_avg_1m", "verified": true, "source": "tor1 catalog 2026-10-09; moved_by chosen on deep-water v-670380 (load average 0.16 to 0.97, CPU 15 to 21 %, B-035), a rise our pg load did not cause: the run had failed (B-037), so moved_by is untested against a pg load"},
     "kubernetes": {"metric": "do.kubernetes.node_cpu_utilization", "verified": true, "source": "tor1 catalog 2026-10-09"},
     "functions": {"metric": "do.functions.activations", "verified": true, "source": "tor1 catalog, deep-water v-aba9cd 2026-10-09"},
     "spaces": {"metric": "do.spaces.requests", "verified": true, "source": "tor1 catalog 2026-10-09"},

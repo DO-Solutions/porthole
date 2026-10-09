@@ -17,7 +17,10 @@ Dashboards have no API, so the dashboard lives here as files.
   the Function namespace's series carry `resource_urn` and nothing else (BUGS.md B-033). Charts without a query (the
   log table and the markdown note) are listed but not run.
   Insights has no request-rate metric for load balancers (finding A35), so the "Load balancer requests" chart derives
-  it: `sum by (resource_urn) (rate(do.load_balancers.http_responses_by_status{...}[5m]))`. Every metric name in the
+  it: `sum by (resource_urn) (rate(do.load_balancers.http_responses_by_status{...}[5m]))`. "Database transactions
+  per minute" is `rate()` of the `do.databases.pg_transactions_committed` counter times 60. It replaced "Database
+  connections": `pg_connections_active` reads 0 between samples on a quiet cluster, and on tor1 it read 0 for an hour
+  on 2026-10-09 while the counter rose about 100 a minute (BUGS.md B-037). Every metric name in the
   sidecar must be in `watcher/catalog/`; `scripts/check_metric_names.py` fails CI otherwise (BUGS.md B-034).
 
 The brief describes the sidecar as a list of charts; it is an object with `variables` and `charts` so the variables

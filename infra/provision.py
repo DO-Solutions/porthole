@@ -17,7 +17,7 @@ import httpx
 import steps
 from doapi import APIError, DOClient, WaitTimeout
 from state import SecretLeak, State
-from steps.common import Context, RunResult, StepError, Timeouts, run_command
+from steps.common import Context, RunResult, StepError, Timeouts, run_command, run_sql
 
 OUT = Path(__file__).resolve().parent / "out"
 
@@ -37,8 +37,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None, *, env: Mapping[str, str] | None = None,
          transport: httpx.BaseTransport | None = None, web_transport: httpx.BaseTransport | None = None,
          runner: Callable[..., RunResult] = run_command, which: Callable[[str], str | None] = shutil.which,
-         sleep: Callable[[float], None] = time.sleep, out_dir: Path = OUT, timeouts: Timeouts | None = None) -> int:
-    """The CLI. The keyword arguments are for tests: fake transports, a fake runner and a sleep that returns."""
+         sleep: Callable[[float], None] = time.sleep, out_dir: Path = OUT, timeouts: Timeouts | None = None,
+         sql: Callable[..., None] = run_sql) -> int:
+    """The CLI. The keyword arguments are for tests: fake transports, a fake runner, a fake SQL runner and a sleep
+    that returns."""
     args = build_parser().parse_args(argv)
     if args.plan:
         print("\n".join(steps.plan_lines()))
@@ -60,7 +62,7 @@ def main(argv: list[str] | None = None, *, env: Mapping[str, str] | None = None,
         return 2
     api = DOClient(env["DIGITALOCEAN_TOKEN"].strip(), transport=transport, dry_run=args.dry_run, sleep=sleep)
     ctx = Context(api=api, state=state, env=env, web=httpx.Client(transport=web_transport, timeout=10),
-                  out_dir=out_dir, dry_run=args.dry_run, which=which, run=runner, insights_transport=transport,
+                  out_dir=out_dir, dry_run=args.dry_run, which=which, run=runner, sql=sql, insights_transport=transport,
                   timeouts=timeouts or Timeouts())
     try:
         for step in selected:

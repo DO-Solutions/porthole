@@ -135,8 +135,9 @@ variable; the next deploy picks it up.
    the live catalog, `GET .../prom/api/v1/label/__name__/values` with a `start` and `end`
    (`python harness/insights_harness.py prom values __name__ --region tor1`), not from the docs (B-033).
    A family whose `moved_by` differs from its `metric` is seen by one and judged moved by the other: the database
-   is seen by its CPU and moved by `do.databases.load_avg_1m`, because its CPU barely moves under the pg load and
-   stores NaN every other minute (A40, B-035).
+   is seen by its CPU and moved by `do.databases.load_avg_1m`, because its CPU stores NaN every other minute (A40,
+   B-035). Neither has been checked against a pg load yet: until B-037's fix the pg scenario failed at its first
+   statement, so no deep-water run had loaded the database.
 8. A metric name that does not exist fails silently. A query on it returns no series, and an alert rule on it is
    accepted (`201`), listed, can be activated, and never fires; nothing in the rule's status says so (finding A38,
    B-034). `watcher/catalog/metric-names-<region>.txt` is the catalog as listed on 2026-10-09;
@@ -145,6 +146,15 @@ variable; the next deploy picks it up.
    voyage metric that a configured region's catalog lacks. When Insights adds or renames a metric, refresh the file
    from the call in its header. A rule already created on a wrong name is corrected by fixing the template and
    running `python infra/provision.py --only insights` (`--dry-run` first shows the diff).
+9. A tentacle restarted between 06:00 and 07:00 UTC: Ubuntu's `apt-daily-upgrade.timer` runs unattended-upgrades
+   every day at a random time in that hour, and an upgrade can restart `tentacle.service`. On 2026-10-09 it upgraded
+   systemd on kraken-tentacle-1, re-executed it and restarted the service at 06:22:14Z. `systemctl show
+   tentacle.service -p NRestarts` stayed 0, because systemd counts only the restarts it makes after a failure. A
+   scenario running on that tentacle ends then, and the upgrade's own CPU can fire a CPU rule: it held
+   kraken-tentacle-1 near 69 % for three minutes and spoiled the 06:23Z round trip (B-035). Keep the upgrades, since
+   the tentacles are on the public internet. Keep the voyage runner (outside this repo) and the demo schedule out of
+   that hour instead. The Stir page lists a run the restart cut short with reason `error` and the restart time
+   (B-036). On the box, `journalctl -u apt-daily-upgrade -u tentacle --since 06:00` shows both.
 
 Security posture and how to report a problem: [SECURITY.md](SECURITY.md).
 
@@ -181,7 +191,10 @@ The tentacle (`tentacle/tentacle.py`, FastAPI) is the scenario service on each D
 
 `POST /scenario/{cpu,memory,disk,network,logs,chain,pg}` starts a bounded run, at most 8 at once; memory and disk
 answer 409 when they would starve the machine. `POST /scenario/stop/{id}` stops one; `POST /sink` and
-`GET /chain/hop` serve the network and chain scenarios. Each run logs its start and end and emits a
+`GET /chain/hop` serve the network and chain scenarios. The pg scenario writes `tentacle.load`, in the schema the
+infra database step creates for the user; without that schema each connection writes its own TEMP TABLE. Its result
+says which (`table`, `fallback`) and what it did (`connections`, `statements`, `rows_written`, `errors`,
+`error_texts`), on a failed run too (BUGS.md B-037). Each run logs its start and end and emits a
 `scenario.<name>` span. Log lines are JSON on stdout and in the log file; traces and logs go out over OTLP/HTTP and
 fail quietly when no collector listens. `tentacle/install.sh` is idempotent and works as `user_data` with
 `export` lines right after the shebang (`infra/steps/droplets.py` writes them). It writes `/etc/tentacle/env`

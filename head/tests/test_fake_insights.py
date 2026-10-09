@@ -145,6 +145,30 @@ def test_lb_requests_per_second_is_a_rate_of_the_response_counter(world):
     assert float(counter[0]["value"][1]) > 1000 and 0 < float(rps[0]["value"][1]) < 1
 
 
+def test_database_transactions_per_minute_chart_reads_the_committed_counter(world):
+    """tor1, 2026-10-09: pg_connections_active read 0 for an hour while pg_transactions_committed rose about 100 a
+    minute. The dashboard charts rate() * 60 of the counter, which shows the cluster's own activity and a pg run."""
+    side = json.loads((REPO / "watcher" / "dashboards" / "krakens-eye.queries.json").read_text())
+    chart = next(c for c in side["charts"] if c["title"] == "Database transactions per minute")
+    urn = next(e.urn for e in world["fleet"].entities() if e.kind == "database")
+    query = chart["promql"].replace("$database_urn", urn)
+    assert query.startswith("sum by (resource_urn) (rate(do.databases.pg_transactions_committed{") and \
+        query.endswith("[5m])) * 60") and "pg_connections_active reads 0" in chart["note"]
+
+    def per_minute() -> float:
+        [series] = world["ins"].query(query, region="tor1")["data"]["result"]
+        assert series["metric"] == {"resource_urn": urn}
+        return float(series["value"][1])
+
+    assert 95 <= per_minute() <= 105
+    world["tentacles"].by_name("kraken-tentacle-2").start("pg", {"seconds": "180", "clients": "8"},
+                                                          world["clock"].now())
+    world["clock"].t += 240
+    assert per_minute() > 1000
+    connections = world["ins"].query(f'do.databases.pg_connections_active{{resource_urn="{urn}"}}', region="tor1")
+    assert float(connections["data"]["result"][0]["value"][1]) == 0
+
+
 def test_lb_and_function_series_carry_the_tor1_names_and_labels(world):
     """B-033, deep-water v-aba9cd: tor1 has do_load_balancers_connections_active and do_functions_activations, not
     connections_current or do_serverless_*. The LB connection series carry do_tags, resource_urn and service_name;

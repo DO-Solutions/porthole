@@ -44,7 +44,7 @@ ROOT_FS = {"filesystem_mountpoint": "/", "filesystem_device": "/dev/vda1", "file
 DB_FS = tuple({"filesystem_mountpoint": f"/srv/aiven-persistent/kraken-pg-{v}", "filesystem_type": "ext4",
                "filesystem_device": f"/dev/mapper/kraken-pg-{v}"} for v in ("service", "scratch"))
 # Counters: the value only grows, and rate()/increase() over them are computed from two samples.
-COUNTERS = {"do_load_balancers_http_responses_by_status"}
+COUNTERS = {"do_load_balancers_http_responses_by_status", "do_databases_pg_transactions_committed"}
 # The database series SeriesModel._database values on the two-minute cadence of A40
 DB_TWO_MINUTE = {"do_databases_cpu_utilization", "do_databases_load_avg_1m", "do_databases_pg_connections_active"}
 
@@ -79,6 +79,7 @@ FAMILIES: dict[str, dict[str, tuple[str, tuple[dict, ...]]]] = {
         "do_databases_cpu_utilization": ("percent", ({},)), "do_databases_memory_utilization": ("percent", ({},)),
         "do_databases_load_avg_1m": ("plain", ({},)),
         "do_databases_pg_connections_active": ("plain", ({},)), "do_databases_filesystem_free": ("bytes", DB_FS),
+        "do_databases_pg_transactions_committed": ("plain", ({},)),  # a counter; the chart is rate() * 60 of it
     },
     "kubernetes": {
         "do_kubernetes_node_cpu_utilization": ("percent", ({},)),
@@ -237,13 +238,17 @@ class SeriesModel:
             return round(12 + 6 * n, 2)
         if m == "do_functions_errors_total":
             return 0.0
+        if m == "do_databases_pg_transactions_committed":
+            return float(int(t * 100 / 60) + self._pg_transactions(t))
         return round(10 + 5 * n + 3 * w, 3)
 
     def _database(self, s: Series, t: float) -> float | None:
         """A40, tor1 2026-10-09: database metrics arrive every two minutes. The CPU series stores NaN in the minute
-        between, and the load average carries the two-minute value forward, so its values come in pairs. Deep water
-        v-670380 under 8 pg clients for 180 s: CPU 15 to 21 %, load average 0.16 to 0.97, and
-        pg_connections_active 0 at every sample."""
+        between, and the load average carries the two-minute value forward, so its values come in pairs. During
+        deep water v-670380 the CPU went 15 to 21 %, the load average 0.16 to 0.97 and pg_connections_active read 0
+        at every sample, but the pg run had failed 0.4 s in (B-037), so nothing of ours caused the rise. That the
+        CPU and load average rise with pg clients, as here, is this model's guess until a pg run has loaded the
+        database."""
         m, minute = s.metric, int(t // 60)
         key = f"{m}:{sorted(s.labels.items())}"
         t2 = (minute - minute % 2) * 60.0
@@ -256,6 +261,18 @@ class SeriesModel:
         if m == "do_databases_load_avg_1m":
             return round(0.16 + 0.1 * n + 0.1 * clients, 3)
         return 0.0  # do_databases_pg_connections_active
+
+    def _pg_transactions(self, t: float) -> int:
+        """Transactions the pg runs committed up to t less the lag, at a synthetic 20 a second per client. Without
+        them the counter grows about 100 a minute, the cluster's own activity on tor1 (2026-10-09)."""
+        if self.world is None:
+            return 0
+        upto, total = t - LAG_S, 0.0
+        for r in self.world.runs_any("pg"):
+            start = r["started_at"].timestamp()
+            end = min(upto, r["ended_at"].timestamp() if r.get("ended_at") else upto)
+            total += max(0.0, end - start) * r["params"].get("clients", 0) * 20
+        return int(total)
 
     def _load(self, t: float, kind: str, since: float | None = None) -> int:
         """Requests of this kind in the minute before t less the lag, or from since to then."""

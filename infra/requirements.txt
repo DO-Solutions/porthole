@@ -2,3 +2,5 @@
 httpx==0.28.1
 # The app step reads .do/app.yaml.
 PyYAML==6.0.3
+# The database step creates the tentacles' schema as doadmin. Same pin as tentacle/requirements.txt.
+psycopg[binary]==3.3.6

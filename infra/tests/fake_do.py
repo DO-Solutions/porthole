@@ -62,10 +62,21 @@ class FakeDO:
         self.reported = {"kraken-lb"}  # resource names Insights already has a resource_urn for
         self.fn_deployed = False
         self.fail: dict[tuple[str, str], int] = {}  # (method, path regex) -> status to answer instead
+        self.sql_calls: list[tuple[dict, list[str]]] = []  # what the database step sent as doadmin
+        self.sql_refuse: dict[str, str] = {}  # statement prefix -> the server's error for it
         self.items["vpcs"][uuid(900)] = {"id": uuid(900), "name": "default-tor1", "region": "tor1", "default": True}
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
+
+    def sql(self, conninfo: dict, statements: list[str]) -> None:
+        """The managed Postgres as steps.common.run_sql reaches it: records every session, refuses as told."""
+        from steps.common import SqlError
+        self.sql_calls.append((dict(conninfo), list(statements)))
+        for statement in statements:
+            refused = next((err for prefix, err in self.sql_refuse.items() if statement.startswith(prefix)), None)
+            if refused:
+                raise SqlError(refused)
 
     def web_transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle_web)

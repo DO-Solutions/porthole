@@ -29,6 +29,7 @@ LIMITS: dict[str, dict[str, tuple[Any, float, float, type]]] = {
 MAX_RUNNING = 8
 KEEP_FINISHED = 50  # tentacle.py keeps the last 50 finished runs
 REASONS = {"finished": "completed", "stopped": "stopped", "failed": "error"}
+PG_FAIL_S = 0.422  # v-670380's pg run, from start to failure
 
 
 def _json(status: int, body: Any, headers: dict | None = None) -> httpx.Response:
@@ -46,6 +47,7 @@ class FakeRun:
     ended_at: datetime | None = None
     result: dict = field(default_factory=dict)
     error: str | None = None
+    fails_with: str | None = None  # the run ends failed with this error after duration_s
 
     def view(self, now: datetime) -> dict:
         end = self.ended_at or now
@@ -82,8 +84,10 @@ def _result(run: FakeRun, fraction: float) -> dict:
         failed = round(done * p["error_pct"] / 100)
         ids = [hashlib.md5(f"{run.id}:{i}".encode()).hexdigest() for i in (0, done - 1)]
         return {"ok": done - failed, "failed": failed, "first_trace_id": ids[0], "last_trace_id": ids[1]}
-    if run.name == "pg":
-        return {"ops": int(p["clients"] * p["seconds"] * fraction * 40), "errors": 0, "clients": p["clients"]}
+    if run.name == "pg":  # tentacle.py's result keys; the counts are synthetic
+        rows = int(p["clients"] * p["seconds"] * fraction * 20)
+        return {"clients": p["clients"], "table": "tentacle.load", "fallback": None, "connections": p["clients"] + 1,
+                "statements": 2 + rows * 2, "rows_written": rows, "errors": 0, "error_texts": []}
     return {}
 
 
@@ -96,6 +100,8 @@ class FakeTentacle:
         # a 1 GB Droplet as the tor1 tentacles report it: MemTotal 961 MB, 590 MB available with nothing running
         self.mem_total_mb, self.mem_base_mb, self.disk_free_mb = 961, 371, 20_000
         self.unreachable = self.refuse_memory = self.refuse_disk = False
+        # set, a pg run fails PG_FAIL_S in with this error, as v-670380's did on PostgreSQL 16 (B-037)
+        self.pg_error: str | None = None
         self.reports_mem_avail = True  # False answers /health as a tentacle from before mem_avail_mb did
         self.requests: list[tuple[str, str]] = []
         self.auth_seen: list[str | None] = []
@@ -105,6 +111,10 @@ class FakeTentacle:
             if run.status == "running" and now >= run.started_at + timedelta(seconds=run.duration_s):
                 run.status, run.ended_at = "finished", run.started_at + timedelta(seconds=run.duration_s)
                 run.result = _result(run, 1.0)
+                if run.fails_with:
+                    run.status, run.error = "failed", run.fails_with
+                    run.result.update(connections=1, statements=1, rows_written=0, errors=1,
+                                      error_texts=[run.fails_with])
 
     def running(self) -> list[FakeRun]:
         return [r for r in self.runs.values() if r.status == "running"]
@@ -188,8 +198,9 @@ class FakeTentacle:
             duration = params["count"] * (2 * params["latency_ms"] / 1000 + 0.02)
         else:
             duration = float(params["seconds"])
+        fails_with = self.pg_error if name == "pg" else None
         run = FakeRun(id=f"{name}-{uuid.uuid4().hex[:8]}", name=name, params=params, started_at=now,
-                      duration_s=duration)
+                      duration_s=PG_FAIL_S if fails_with else duration, fails_with=fails_with)
         self.runs[run.id] = run
         return _json(202, run.view(now))
 

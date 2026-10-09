@@ -10,6 +10,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from fake_do import DB_PASSWORD
 
 import provision
 import steps
@@ -17,6 +18,7 @@ from doapi import APIError, DOClient, WaitTimeout
 from state import check_text
 from steps.app import load_spec
 from steps.common import StepError
+from steps.database import GRANT_SCHEMA, OWN_SCHEMA
 from steps.droplets import user_data
 from steps.insights import templates
 
@@ -102,7 +104,7 @@ def test_a_dry_run_on_an_empty_account_sends_no_mutation(run, world, runner, out
     assert result.code == 0, result.err
     assert world.mutations() == []
     assert [c for c in world.web_calls if c[0] not in ("GET", "HEAD")] == []
-    assert runner.calls == []
+    assert runner.calls == [] and world.sql_calls == []
     assert not out_dir.exists()
     for line in ("would create Droplet kraken-tentacle-1 in tor1 (POST /v2/droplets)",
                  "would create VPC kraken-syd1 (POST /v2/vpcs)", "would create alert rule kraken churn (active)",
@@ -114,8 +116,48 @@ def test_a_dry_run_after_a_full_run_changes_nothing(provisioned, run, out_dir: P
     before = (out_dir / "state.json").read_text()
     result = run("provision", "--dry-run")
     assert result.code == 0, result.err
-    assert provisioned.mutations() == []
+    assert provisioned.mutations() == [] and provisioned.sql_calls == []
+    assert "would create schema tentacle for user tentacle in database kraken (if it is missing)" in result.out
     assert (out_dir / "state.json").read_text() == before
+
+
+def test_the_database_step_gives_the_tentacle_user_its_own_schema(run, world, out_dir: Path) -> None:
+    """B-037, v-aba9cd and v-670380: PostgreSQL 16 refused the pg scenario's CREATE TABLE in public."""
+    result = run("provision")
+    assert result.code == 0, result.err
+    [(conninfo, statements)] = world.sql_calls
+    assert statements == OWN_SCHEMA == ["CREATE SCHEMA IF NOT EXISTS tentacle AUTHORIZATION tentacle"]
+    assert conninfo == {"host": "kraken-pg-0.db.example.test", "port": 25060, "user": "doadmin",
+                        "password": DB_PASSWORD, "dbname": "kraken", "sslmode": "require"}
+    assert "schema tentacle in database kraken is owned by tentacle" in result.out
+    assert DB_PASSWORD not in result.out + result.err + (out_dir / "state.json").read_text()
+    world.sql_calls.clear()
+    assert run("provision", "--only", "database").code == 0
+    assert [s for _, s in world.sql_calls] == [OWN_SCHEMA]  # IF NOT EXISTS: sent on every run
+
+
+def test_a_refused_authorization_falls_back_to_a_grant(run, world) -> None:
+    """PostgreSQL 16 answers CREATE SCHEMA ... AUTHORIZATION tentacle with this when doadmin may not SET ROLE to
+    tentacle (checked on postgres:16 with a tentacle role doadmin did not create)."""
+    world.sql_refuse = {OWN_SCHEMA[0]: 'InsufficientPrivilege: must be able to SET ROLE "tentacle"'}
+    result = run("provision", "--only", "project,network,database")
+    assert result.code == 0, result.err
+    assert [s for _, s in world.sql_calls] == [OWN_SCHEMA, GRANT_SCHEMA]
+    assert GRANT_SCHEMA == ["CREATE SCHEMA IF NOT EXISTS tentacle",
+                            "GRANT USAGE, CREATE ON SCHEMA tentacle TO tentacle"]
+    assert ('schema tentacle in database kraken is owned by doadmin, with USAGE and CREATE granted to tentacle '
+            '(InsufficientPrivilege: must be able to SET ROLE "tentacle")') in result.out
+
+
+def test_without_a_schema_the_database_step_warns_and_goes_on(run, world) -> None:
+    world.sql_refuse = {"CREATE SCHEMA": "OperationalError: connection timeout expired"}
+    result = run("provision", "--only", "project,network,database,functions,droplets")
+    assert result.code == 0, result.err
+    assert "warning: no schema tentacle for tentacle in database kraken (OperationalError: connection timeout " \
+           "expired; then OperationalError: connection timeout expired); the pg scenario will use a TEMP TABLE. As " \
+           "doadmin in database kraken, run: CREATE SCHEMA IF NOT EXISTS tentacle; GRANT USAGE, CREATE ON SCHEMA " \
+           "tentacle TO tentacle" in result.out
+    assert "created Droplet kraken-tentacle-1" in result.out
 
 
 def test_only_runs_the_named_step(run, world) -> None:

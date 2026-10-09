@@ -1,4 +1,5 @@
-"""Step 7 of design section 9.2: the managed Postgres kraken-pg with database "kraken" and user "tentacle".
+"""Step 7 of design section 9.2: the managed Postgres kraken-pg with database "kraken", user "tentacle" and a schema
+"tentacle" that user can create tables in.
 
 It runs before the Droplets because their user_data carries the DSN, whose password is read from the API only
 while that user_data is built and never reaches state.json or the screen."""
@@ -8,9 +9,17 @@ from functools import partial
 from urllib.parse import quote
 
 from doapi import is_placeholder
-from steps.common import TAG, Context, find_named, note_urn
+from steps.common import TAG, Context, SqlError, find_named, note_urn
 
 NAME, DB, USER, REGION = "kraken-pg", "kraken", "tentacle", "tor1"
+# The pg scenario's schema (tentacle/tentacle.py PG_SCHEMA). On PostgreSQL 15 and later only the owner of `public`
+# may create there, and the API's users do not own it (B-037). Named after the user, it is first on the default
+# search_path, so a tentacle that still writes the unqualified `tentacle_load` lands here too.
+SCHEMA = "tentacle"
+OWN_SCHEMA = [f"CREATE SCHEMA IF NOT EXISTS {SCHEMA} AUTHORIZATION {USER}"]
+# doadmin can give the schema away only if it may SET ROLE to the user; when it may not, it keeps the schema and
+# grants the user what the scenario needs.
+GRANT_SCHEMA = [f"CREATE SCHEMA IF NOT EXISTS {SCHEMA}", f"GRANT USAGE, CREATE ON SCHEMA {SCHEMA} TO {USER}"]
 
 
 def ensure_database(ctx: Context) -> None:
@@ -29,11 +38,10 @@ def ensure_database(ctx: Context) -> None:
         ctx.say(f"would create database {DB} and user {USER} in {NAME} once it is online")
         return
     base = f"/v2/databases/{cluster['id']}"
-    ctx.wait(partial(_online, ctx, base), ctx.timeouts.database, f"{NAME} to be online")
+    online = ctx.wait(partial(_online, ctx, base), ctx.timeouts.database, f"{NAME} to be online")
     _child(ctx, base, "dbs", "database", DB)
-    # UNVERIFIED: that a user created through the API may CREATE TABLE in the public schema of "kraken"; on
-    # Postgres 15 and later only the owner (doadmin) may, unless granted (BUGS.md B-018).
     _child(ctx, base, "users", "user", USER)
+    _schema(ctx, online)
     note_urn(ctx, "database", REGION, f"do:dbaas:{cluster['id']}")
     if entry["created"]:
         ctx.assign(f"do:dbaas:{cluster['id']}")
@@ -56,6 +64,30 @@ def _child(ctx: Context, base: str, collection: str, label: str, name: str) -> N
     ctx.hide(created, f"the {label} {name}")
     if created is not None:
         ctx.say(f"created {label} {name} in {NAME}")
+
+
+def _schema(ctx: Context, cluster: dict) -> None:
+    """CREATE SCHEMA tentacle in database kraken as doadmin, on every run (IF NOT EXISTS keeps it idempotent). A
+    failure is a warning: the pg scenario falls back to a TEMP TABLE and says so in its result."""
+    if ctx.dry_run:
+        ctx.say(f"would create schema {SCHEMA} for user {USER} in database {DB} (if it is missing)")
+        return
+    conn = cluster.get("connection") or {}
+    conninfo = {"host": conn.get("host"), "port": conn.get("port"), "user": conn.get("user"),
+                "password": conn.get("password"), "dbname": DB, "sslmode": "require"}
+    try:
+        ctx.sql(conninfo, OWN_SCHEMA)
+        ctx.say(f"schema {SCHEMA} in database {DB} is owned by {USER}")
+        return
+    except SqlError as e:
+        first = str(e)
+    try:
+        ctx.sql(conninfo, GRANT_SCHEMA)
+        ctx.say(f"schema {SCHEMA} in database {DB} is owned by {conn.get('user')}, with USAGE and CREATE granted to "
+                f"{USER} ({first})")
+    except SqlError as e:
+        ctx.say(f"warning: no schema {SCHEMA} for {USER} in database {DB} ({first}; then {e}); the pg scenario will "
+                f"use a TEMP TABLE. As {conn.get('user')} in database {DB}, run: {'; '.join(GRANT_SCHEMA)}")
 
 
 def dsn(ctx: Context) -> str:

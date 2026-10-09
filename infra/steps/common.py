@@ -1,7 +1,7 @@
 """Shared parts of the provisioning steps: the run context, the fleet's fixed names, errors and small helpers.
 
 Each step gets one Context with the API client, the state, the environment, and the pieces the tests replace with
-fakes: the plain web client (tentacles, the app, Spaces), the command runner and the PATH lookup."""
+fakes: the plain web client (tentacles, the app, Spaces), the command runner, the SQL runner and the PATH lookup."""
 from __future__ import annotations
 
 import os
@@ -69,6 +69,24 @@ def run_command(cmd: list[str], env: Mapping[str, str] | None = None) -> RunResu
     return RunResult(done.returncode, done.stdout, done.stderr)
 
 
+class SqlError(Exception):
+    """A statement sent with run_sql failed, or psycopg is not installed. The message is the server's."""
+
+
+def run_sql(conninfo: Mapping[str, Any], statements: list[str]) -> None:
+    """Run statements in one autocommit session; conninfo holds psycopg.connect's keyword arguments."""
+    try:
+        import psycopg
+    except ImportError as e:
+        raise SqlError(f"psycopg is not installed ({e}); pip install -r infra/requirements.txt") from None
+    try:
+        with psycopg.connect(**conninfo, connect_timeout=10, autocommit=True) as conn:
+            for statement in statements:
+                conn.execute(statement)
+    except psycopg.Error as e:
+        raise SqlError(f"{type(e).__name__}: {str(e).strip()}") from None
+
+
 @dataclass
 class Timeouts:
     """Seconds to wait for each kind of thing to become ready."""
@@ -122,6 +140,7 @@ class Context:
     out: Callable[[str], None] = print
     which: Callable[[str], str | None] = shutil.which
     run: Callable[..., RunResult] = run_command
+    sql: Callable[[Mapping[str, Any], list[str]], None] = run_sql
     insights_transport: httpx.BaseTransport | None = None
     base_url: str = BASE_URL
     timeouts: Timeouts = field(default_factory=Timeouts)

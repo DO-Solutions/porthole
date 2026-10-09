@@ -52,6 +52,11 @@ REASONS = {"finished": "completed", "stopped": "stopped", "failed": "error"}
 # run starts or ends, so a restart (a redeploy, a crash, systemd's Restart=always) does not empty /scenarios.
 RUNS_FILE = "runs.json"
 MiB = 1024 * 1024
+# The pg scenario's table lives in a schema the tentacles' database user owns (infra/steps/database.py creates it);
+# PostgreSQL 15 and later let only the owner of `public` create there (B-037).
+PG_SCHEMA = "tentacle"
+PG_TABLE = ("CREATE {kind}TABLE IF NOT EXISTS {table} (id bigserial PRIMARY KEY, tentacle text, payload text, "
+            "n int, created_at timestamptz DEFAULT now())")
 
 
 # --- settings -------------------------------------------------------------------------------
@@ -601,45 +606,87 @@ class Tentacle:
                 return {"fn_error": f"{type(e).__name__}: {e}"}
 
     def pg(self, run: Run) -> dict:
+        """Inserts, reads and trims against PG_DSN from `clients` connections for `seconds`.
+
+        The table is `tentacle.load` in the schema the provisioner creates for this user (B-037): on PostgreSQL 15
+        and later a role that does not own `public` cannot create there. Without that schema each connection makes
+        its own `pg_temp.load`, a TEMP TABLE that needs no schema privilege and goes away with the connection, and
+        the result says so. run.result is filled as the run goes, so a failed run still shows what it did."""
         import psycopg
         p = run.params
-        with psycopg.connect(self.settings.pg_dsn, connect_timeout=10, autocommit=True) as conn:
-            conn.execute("CREATE TABLE IF NOT EXISTS tentacle_load (id bigserial PRIMARY KEY, tentacle text, "
-                         "payload text, n int, created_at timestamptz DEFAULT now())")
-        counts = {"ops": 0, "errors": 0}
+        res: dict[str, Any] = {"clients": p["clients"], "table": None, "fallback": None, "connections": 0,
+                               "statements": 0, "rows_written": 0, "errors": 0, "error_texts": []}
+        run.result = res
         lock = threading.Lock()
+
+        def failed(e: Exception) -> None:
+            with lock:
+                res["errors"] += 1
+                text = f"{type(e).__name__}: {e}".strip()
+                if text not in res["error_texts"] and len(res["error_texts"]) < 5:
+                    res["error_texts"].append(text)
+
+        def execute(conn: Any, sql: str, args: tuple | None = None) -> Any:
+            cur = conn.execute(sql, args)
+            with lock:
+                res["statements"] += 1
+            return cur
+
+        def connect() -> Any:
+            conn = psycopg.connect(self.settings.pg_dsn, connect_timeout=10, autocommit=True)
+            with lock:
+                res["connections"] += 1
+            return conn
+
+        try:
+            with connect() as conn:
+                row = execute(conn, "SELECT has_schema_privilege(oid, 'CREATE') FROM pg_namespace "
+                                    "WHERE nspname = %s", (PG_SCHEMA,)).fetchone()
+                if row and row[0]:
+                    res["table"] = f"{PG_SCHEMA}.load"
+                    execute(conn, PG_TABLE.format(kind="", table=res["table"]))
+                else:
+                    res["table"] = "pg_temp.load"
+                    res["fallback"] = (f"schema {PG_SCHEMA} " + ("is not writable" if row else "is missing") +
+                                       "; each connection wrote its own TEMP TABLE, dropped when it closed")
+                    self.log.warn(f"pg: {res['fallback']}", **{"scenario.id": run.id})
+        except Exception as e:
+            failed(e)
+            raise
+        table = res["table"]
         deadline = time.monotonic() + p["seconds"]
 
         def client(idx: int) -> None:
             try:
-                with psycopg.connect(self.settings.pg_dsn, connect_timeout=10, autocommit=True) as conn:
+                with connect() as conn:
+                    if res["fallback"]:
+                        execute(conn, PG_TABLE.format(kind="TEMP ", table=table))
                     while time.monotonic() < deadline and not run.stop.is_set():
                         try:
-                            conn.execute("INSERT INTO tentacle_load (tentacle, payload, n) VALUES (%s, %s, %s)",
-                                         (self.settings.name, uuid.uuid4().hex * 4, random.randint(0, 1000)))
-                            conn.execute("SELECT count(*), avg(n) FROM (SELECT n FROM tentacle_load "
-                                         "ORDER BY id DESC LIMIT 500) t").fetchone()
+                            execute(conn, f"INSERT INTO {table} (tentacle, payload, n) VALUES (%s, %s, %s)",
+                                    (self.settings.name, uuid.uuid4().hex * 4, random.randint(0, 1000)))
+                            with lock:
+                                res["rows_written"] += 1
+                            execute(conn, f"SELECT count(*), avg(n) FROM (SELECT n FROM {table} "
+                                          "ORDER BY id DESC LIMIT 500) t").fetchone()
                             if random.random() < 0.1:
-                                conn.execute("DELETE FROM tentacle_load WHERE id IN (SELECT id FROM tentacle_load "
-                                             "ORDER BY id LIMIT 50) AND (SELECT count(*) FROM tentacle_load) > "
-                                             "100000")
-                            with lock:
-                                counts["ops"] += 2
-                        except psycopg.Error:
-                            with lock:
-                                counts["errors"] += 1
+                                execute(conn, f"DELETE FROM {table} WHERE id IN (SELECT id FROM {table} "
+                                              f"ORDER BY id LIMIT 50) AND (SELECT count(*) FROM {table}) > 100000")
+                        except psycopg.Error as e:
+                            failed(e)
                             run.stop.wait(0.5)
             except Exception as e:
-                with lock:
-                    counts["errors"] += 1
-                self.log.error(f"pg client {idx} failed: {e}", **{"scenario.id": run.id})
+                failed(e)
+                self.log.error(f"pg client {idx} failed: {type(e).__name__}: {e}", **{"scenario.id": run.id})
 
         threads = [threading.Thread(target=client, args=(i,), daemon=True) for i in range(p["clients"])]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
-        return {**counts, "clients": p["clients"]}
+        if not res["rows_written"] and res["error_texts"]:
+            raise RuntimeError(f"no row written in {p['seconds']} s: {res['error_texts'][0]}")
+        return res
 
 
 # --- the app --------------------------------------------------------------------------------

@@ -28,7 +28,8 @@ STEPS: tuple[Step, ...] = (
         (4, "firewall kraken-tentacles (22 from SSH_ALLOW_CIDRS, 8800 from anywhere, 80 from the LB); "
             "reserved IPs for tentacle-1 and -2"))),
     Step("database", "steps.database", (
-        (7, 'kraken-pg: managed Postgres, db-s-1vcpu-1gb in tor1, database "kraken", user "tentacle"'),)),
+        (7, 'kraken-pg: managed Postgres, db-s-1vcpu-1gb in tor1, database "kraken", user "tentacle" and the '
+            'schema "tentacle" it creates tables in'),)),
     Step("functions", "steps.functions", (
         (9, 'functions namespace "kraken" in tor1 and function kraken/ping (doctl serverless deploy)'),)),
     Step("droplets", "steps.droplets", (

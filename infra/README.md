@@ -38,7 +38,7 @@ and the Function URL at first boot. `--plan` prints the same list.
 | 2 | 2 | project | tags `insights-demo` (every taggable resource) and `kraken-tentacle` (the firewall target) |
 | 3 | 3 | network | per region: `kraken-<region>` if it exists, else the region's default VPC, else a new `kraken-<region>` |
 | 4 | 4 | network | firewall `kraken-tentacles`, and a reserved IP for each of tentacle-1 and tentacle-2 |
-| 5 | 7 | database | `kraken-pg` (Postgres, db-s-1vcpu-1gb, tor1) with database `kraken` and user `tentacle` |
+| 5 | 7 | database | `kraken-pg` (Postgres, db-s-1vcpu-1gb, tor1) with database `kraken`, user `tentacle` and schema `tentacle` (see below) |
 | 6 | 9 | functions | namespace `kraken` in tor1 and the function `kraken/ping` |
 | 7 | 5 | droplets | `kraken-tentacle-1` and `-2` (tor1), `-3` (syd1): s-1vcpu-1gb, Ubuntu 24.04, monitoring on |
 | 8 | 6 | lb | `kraken-lb` (tor1): HTTP 80 to port 8800 on tentacle-1 and -2, health check `/health` |
@@ -64,6 +64,18 @@ stays paused. This is how the five rules created on metric names Insights does n
 B-034): `python infra/provision.py --only insights --dry-run`, then `python infra/provision.py --only insights`.
 For the load balancer, the database and the cluster, the URN comes from Insights (`label/resource_urn/values`),
 or is the documented pattern with `urn_verified: false` until the resource reports there.
+
+## Schema `tentacle`: where the pg scenario writes
+
+Managed PostgreSQL in tor1 is version 16. Since PostgreSQL 15 only the owner of `public` may create in it, and the
+`tentacle` user the API creates does not own it, so the pg scenario's `CREATE TABLE` failed with `permission denied
+for schema public` (BUGS.md B-037). On every run the database step connects to database `kraken` as doadmin (the
+cluster's `connection` from the API, with `sslmode=require`, from the machine running `provision.py`) and sends
+`CREATE SCHEMA IF NOT EXISTS tentacle AUTHORIZATION tentacle`. PostgreSQL refuses that when doadmin may not
+`SET ROLE tentacle`; the step then creates the schema owned by doadmin and grants `USAGE, CREATE` on it to
+`tentacle`, and prints which one it did. If both fail, it prints a warning with the two statements to run by hand
+and goes on; the scenario then uses a TEMP TABLE and says so in its result. `--dry-run` sends no SQL. Rerun the
+step alone with `python infra/provision.py --only database`.
 
 ## PEER_URL: why the network step reserves two IPs
 

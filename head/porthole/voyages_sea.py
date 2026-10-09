@@ -83,20 +83,27 @@ async def chain(ctx: Any) -> dict:
             "head_trace_id": ctx.run.trace_id}
 
 
-# 4 clients for 60 s left a 1 vCPU managed Postgres between 15 and 20 % CPU (v-aba9cd); the load has to outlast the
-# two-minute database series and Insights' lag inside the five-minute watch. 8 clients is the head's cap for pg.
+# The load has to outlast the two-minute database series and Insights' lag inside the five-minute watch; 8 clients
+# is the head's cap for pg. Neither deep-water run so far loaded the database: the scenario's CREATE TABLE failed at
+# once in v-aba9cd (4 clients for 60 s then) and in v-670380 (B-037), so these numbers are untested against it.
 PG_SECONDS, PG_CLIENTS = 180, 8
+FN_SECONDS, FN_RPS = 60, 5
+LB_SECONDS, LB_RPS = 60, 20
 # Database metrics arrive every two minutes (A40), so the first sample after the load starts can predate it; the
 # moved check compares with the mean over the five minutes before the load instead.
 BASELINE_S = 300
+# A pg run is re-read this long after the tentacle accepted it: v-670380's failed 0.4 s in, and the step said done.
+PG_CHECK_S = 3
 PLAN = (("start-pg", "pg", "database"), ("start-fn", "fn", "functions"), ("start-lb", "lb", "load_balancer"))
+PARAMS = {"pg": {"seconds": PG_SECONDS, "clients": PG_CLIENTS}, "fn": {"seconds": FN_SECONDS, "rps": FN_RPS},
+          "lb": {"seconds": LB_SECONDS, "rps": LB_RPS}}
 
 
 def pg_tentacle(ctx: Any, region: str | None) -> Any:
     """Where the pg clients run: the voyage's target, else a tentacle in the database's region that the round-trip
-    CPU rule does not watch, else the first tentacle. The clients load the tentacle they run on (69 % CPU with 8
-    clients on a 1 vCPU Droplet, B-035), and on the rule's tentacle that fires the rule and spoils the next round
-    trip's baseline."""
+    CPU rule does not watch, else the first tentacle. The clients run on the tentacle that starts them, so they add
+    to its CPU; how much is not measured yet (B-035: the 69 % on kraken-tentacle-1 at 06:21Z was the package
+    upgrade, not pg). Kept off the rule's tentacle so a pg run cannot move the next round trip's baseline."""
     if ctx.params.get("target"):
         return tentacle(ctx, ctx.params["target"])
     rule = ctx.fleet.rule("round-trip")
@@ -104,6 +111,18 @@ def pg_tentacle(ctx: Any, region: str | None) -> Any:
     same_region = [t for t in ctx.fleet.tentacles if t.region == region]
     return next((t for t in same_region + list(ctx.fleet.tentacles) if t.name not in watched), None) or tentacle(
         ctx, None)
+
+
+async def pg_still_running(ctx: Any, target: str, run_id: str) -> None:
+    """Re-read the pg run once, PG_CHECK_S after the start: an error or a status other than running fails the step
+    with the tentacle's text."""
+    await ctx.clock.sleep(PG_CHECK_S)
+    view = await ctx.run_view(target, run_id)
+    if view is None:
+        raise VoyageFailed(f"the pg run is not in {target}'s /scenarios {PG_CHECK_S} s after it started")
+    if view.get("error") or view.get("status") != "running":
+        raise VoyageFailed(f"pg on {target}: {view.get('status')} after {view.get('elapsed_s')} s: "
+                           f"{view.get('error') or 'no error given'}")
 
 
 def _missing(kind: str, spec: Any) -> bool:
@@ -140,11 +159,12 @@ async def deep_water(ctx: Any) -> dict:
             if kind not in usable:
                 s.skip(f"no {kind.replace('_', ' ')} in the fleet description")
             target = pg_tentacle(ctx, spec.region).name if scenario == "pg" else "head"
-            params = {"pg": {"seconds": PG_SECONDS, "clients": PG_CLIENTS}, "fn": {"seconds": 60, "rps": 5},
-                      "lb": {"seconds": 60, "rps": 20}}[scenario]
-            run = await ctx.start(target, scenario, params)
-            watched.append((kind, spec))
+            run = await ctx.start(target, scenario, PARAMS[scenario])
             s.note(f"{run['id']} on {target}")
+            if scenario == "pg":
+                await pg_still_running(ctx, target, run["id"])
+                s.note(f"{run['id']} on {target}, running after {PG_CHECK_S} s")
+            watched.append((kind, spec))
     present: dict[str, float | None] = {kind: None for kind, _ in watched}
     moved: dict[str, float | None] = {kind: None for kind, _ in watched}
     last: dict[str, float] = {}

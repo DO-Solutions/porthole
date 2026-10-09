@@ -232,8 +232,8 @@ def pg_runs(env, name):
 
 async def test_deep_water_moves_the_database_by_load_average_against_a_pre_load_baseline(env):
     """B-035, run v-670380: database CPU went 15 -> 21 % and was called "data but no change", while the load average
-    went 0.16 -> 0.97. The CPU series stores NaN every other minute (A40). The pg clients ran on kraken-tentacle-1,
-    held it at 69 % CPU and fired the round-trip rule that watches it."""
+    went 0.16 -> 0.97. The CPU series stores NaN every other minute (A40). The pg run itself had failed 0.4 s in
+    (B-037), so the fake's database rising with pg clients is the model, not something v-670380 showed."""
     run = await sail(env, "deep-water")
     assert await env.run_until(lambda: run.status != "sailing")
     assert run.status == "done", run.error
@@ -242,7 +242,7 @@ async def test_deep_water_moves_the_database_by_load_average_against_a_pre_load_
     assert base.text.startswith("database do.databases.load_avg_1m 0.")
     assert base.text.endswith(" over the 5 minutes before the load")
     assert pg_runs(env, "kraken-tentacle-1") == [] and len(pg_runs(env, "kraken-tentacle-2")) == 1
-    assert run.step("start-pg").text.endswith(" on kraken-tentacle-2")
+    assert run.step("start-pg").text.endswith(" on kraken-tentacle-2, running after 3 s")
     watch = run.step("watch")
     assert run.summary["moved_after_s"]["database"] is not None
     assert watch.data["seen_metrics"]["database"] == "do.databases.cpu_utilization"
@@ -268,6 +268,62 @@ async def test_deep_water_skips_nan_samples_when_cpu_is_the_moved_metric(env):
     assert run.step("baseline").data["samples"]["database"] == 3  # NaN in every other minute
     assert run.summary["moved_after_s"]["database"] is not None
     assert "database (do.databases.cpu_utilization): moved after" in run.step("watch").text
+
+
+async def test_deep_water_fails_start_pg_when_the_pg_run_fails(env):
+    """v-670380: the tentacle accepted the pg run, the run failed 0.4 s later, and start-pg said done."""
+    text = "InsufficientPrivilege: permission denied for schema public"
+    env.fleet.by_name("kraken-tentacle-2").pg_error = text
+    run = await sail(env, "deep-water")
+    assert await env.run_until(lambda: run.status != "sailing")
+    rec = run.step("start-pg")
+    [pg] = pg_runs(env, "kraken-tentacle-2")
+    assert run.status == "failed" and rec.status == "failed"
+    assert rec.text == f"pg on kraken-tentacle-2: failed after 0.422 s: {text} ({pg.id} on kraken-tentacle-2)"
+    assert run.error == f"start-pg: {rec.text}"
+    assert run.step("start-fn").status == "skipped" and env.deps.scenarios.head_runs == {}
+
+
+async def test_deep_water_starts_each_load_with_the_numbers_its_titles_show(env):
+    from porthole import voyages_sea as sea
+    run = await sail(env, "deep-water")
+    assert await env.run_until(lambda: run.status != "sailing")
+    assert run.status == "done", run.error
+    [pg] = pg_runs(env, "kraken-tentacle-2")
+    assert pg.params == {"seconds": sea.PG_SECONDS, "clients": sea.PG_CLIENTS}
+    assert {r.name: r.params for r in env.deps.scenarios.head_runs.values()} == {
+        "fn": {"seconds": sea.FN_SECONDS, "rps": sea.FN_RPS}, "lb": {"seconds": sea.LB_SECONDS, "rps": sea.LB_RPS}}
+
+
+def test_deep_water_titles_are_built_from_the_constants(monkeypatch):
+    """The report took "start pg 60 s with 4 clients" for what ran; the code ran 180 s with 8. A title is built from
+    the constant it names, so changing one changes the other."""
+    import importlib
+
+    from porthole import voyages_catalog
+    from porthole import voyages_sea as sea
+
+    def titles() -> dict[str, str]:
+        spec = voyages_catalog.CATALOG["deep-water"]
+        return {s.name: s.title for s in spec.steps} | {"story": spec.story}
+
+    now = titles()
+    assert f"{sea.PG_CLIENTS} clients for {sea.PG_SECONDS} s" in now["start-pg"]
+    assert f"Postgres with {sea.PG_CLIENTS} clients for {sea.PG_SECONDS} s" in now["story"]
+    assert now["start-fn"] == f"fn: {sea.FN_RPS} calls a second for {sea.FN_SECONDS} s"
+    assert now["start-lb"] == f"lb: {sea.LB_RPS} calls a second for {sea.LB_SECONDS} s"
+    for name, value in {"PG_CLIENTS": 3, "PG_SECONDS": 77, "FN_RPS": 9, "LB_SECONDS": 41}.items():
+        monkeypatch.setattr(sea, name, value)
+    try:
+        importlib.reload(voyages_catalog)
+        changed = titles()
+        assert changed["start-pg"].startswith("pg: 3 clients for 77 s, ")
+        assert "Postgres with 3 clients for 77 s" in changed["story"] and "load balancer for 41 s" in changed["story"]
+        assert changed["start-fn"] == "fn: 9 calls a second for 60 s"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(voyages_catalog)
+    assert titles() == now
 
 
 class StubCtx:

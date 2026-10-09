@@ -302,7 +302,100 @@ def test_pg_scenario_needs_dsn_and_reports_failure(env, tmp_path):
         run = e.start("/scenario/pg", seconds=1, clients=1)
         done = e.wait(run["id"])
         assert done["status"] == "failed" and "OperationalError" in done["error"]
+        assert done["result"]["connections"] == 0 and done["result"]["error_texts"] == [done["error"]]
         assert any(l["severity_text"] == "ERROR" and l.get("scenario.id") == run["id"] for l in e.log_lines())
+
+
+class FakePsycopg:
+    """psycopg as the pg scenario uses it, over a database where `schema` is "writable", "read-only" or "missing"
+    and a statement starting with a key of `refuse` raises that error. Every statement lands in `sent`."""
+
+    class Error(Exception):
+        pass
+
+    class InsufficientPrivilege(Error):
+        pass
+
+    def __init__(self, schema: str, refuse: dict[str, str] | None = None):
+        self.schema, self.refuse = schema, refuse or {}
+        self.sent: list[str] = []
+        self.connects = 0
+
+    def connect(self, dsn, **kwargs):
+        self.connects += 1
+        return FakePgConn(self)
+
+
+class FakePgConn:
+    def __init__(self, pg: FakePsycopg):
+        self.pg, self.row = pg, None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, args=None):
+        for prefix, text in self.pg.refuse.items():
+            if sql.startswith(prefix):
+                raise self.pg.InsufficientPrivilege(text)
+        self.pg.sent.append(sql)
+        self.row = {"writable": (True,), "read-only": (False,), "missing": None}[self.pg.schema] \
+            if "pg_namespace" in sql else (1, 1.0)
+        time.sleep(0.002)
+        return self
+
+    def fetchone(self):
+        return self.row
+
+
+def pg_run(tmp_path, monkeypatch, fake: FakePsycopg, clients: int = 3) -> tuple[dict, list[dict]]:
+    monkeypatch.setitem(sys.modules, "psycopg", fake)
+    e = Env(tmp_path, pg_dsn="postgresql://tentacle@db.test/kraken")
+    with e.client:
+        done = e.wait(e.start("/scenario/pg", seconds=1, clients=clients)["id"])
+    return done, e.log_lines()
+
+
+def test_pg_scenario_writes_to_the_schema_its_user_owns(tmp_path, monkeypatch):
+    """B-037: PostgreSQL 16 lets only the owner of public create there, so the table is tentacle.load."""
+    fake = FakePsycopg("writable")
+    done, _ = pg_run(tmp_path, monkeypatch, fake)
+    res = done["result"]
+    assert done["status"] == "finished" and done["error"] is None
+    assert res["table"] == "tentacle.load" and res["fallback"] is None
+    assert res["connections"] == fake.connects == 4 and res["clients"] == 3  # the setup session and three clients
+    assert res["statements"] == len(fake.sent) and res["rows_written"] > 0 and res["errors"] == 0
+    assert sum(s.startswith("INSERT INTO tentacle.load ") for s in fake.sent) == res["rows_written"]
+    assert any(s.startswith("CREATE TABLE IF NOT EXISTS tentacle.load (") for s in fake.sent)
+    assert not any("tentacle_load" in s or "TEMP" in s for s in fake.sent)
+
+
+@pytest.mark.parametrize("schema,why", [("missing", "is missing"), ("read-only", "is not writable")])
+def test_pg_scenario_falls_back_to_a_temp_table_and_says_so(tmp_path, monkeypatch, schema, why):
+    fake = FakePsycopg(schema)
+    done, logs = pg_run(tmp_path, monkeypatch, fake)
+    res = done["result"]
+    assert done["status"] == "finished" and res["rows_written"] > 0
+    assert res["table"] == "pg_temp.load"
+    assert res["fallback"] == f"schema tentacle {why}; each connection wrote its own TEMP TABLE, dropped when it closed"
+    assert fake.sent.count("CREATE TEMP TABLE IF NOT EXISTS pg_temp.load (id bigserial PRIMARY KEY, tentacle text, "
+                           "payload text, n int, created_at timestamptz DEFAULT now())") == 3  # one per connection
+    assert any(l["severity_text"] == "WARN" and l["body"] == f"pg: {res['fallback']}" for l in logs)
+
+
+def test_a_pg_run_that_writes_nothing_fails_with_the_servers_text(tmp_path, monkeypatch):
+    """v-670380 failed 0.4 s in; the run must say why, and what it had done by then."""
+    text = 'permission denied to create temporary tables in database "kraken"'
+    done, logs = pg_run(tmp_path, monkeypatch, FakePsycopg("missing", {"CREATE TEMP TABLE": text}), clients=2)
+    res = done["result"]
+    assert done["status"] == "failed" and done["reason"] == "error"
+    assert done["error"] == f"RuntimeError: no row written in 1 s: InsufficientPrivilege: {text}"
+    assert res["error_texts"] == [f"InsufficientPrivilege: {text}"] and res["errors"] == 2
+    assert res["connections"] == 3 and res["rows_written"] == 0 and res["statements"] == 1
+    end = next(l for l in logs if l["body"].startswith("scenario pg failed: "))
+    assert end["result.rows_written"] == 0 and end["result.error_texts"] == res["error_texts"]
 
 
 def test_finished_runs_say_how_they_ended_newest_first(tmp_path):

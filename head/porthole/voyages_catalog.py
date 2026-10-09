@@ -1,9 +1,11 @@
 """The seven voyages of design Appendix C as specs: title, plan feature, story, parameters and planned steps.
 
 The step lists are the plan the Stir page shows before a voyage sails; the run functions live in
-voyages_metrics.py and voyages_sea.py, and each one walks exactly these steps in this order."""
+voyages_metrics.py and voyages_sea.py, and each one walks exactly these steps in this order. Where a run function
+has its numbers in constants, the titles are built from them, so the plan cannot drift from what runs."""
 from __future__ import annotations
 
+from porthole import voyages_sea as sea
 from porthole.voyages import StepSpec, VoyageSpec
 from porthole.voyages_metrics import alert_round_trip, ballast, churn, two_seas
 from porthole.voyages_sea import chain, deep_water, log_storm
@@ -74,15 +76,17 @@ CATALOG: dict[str, VoyageSpec] = {v.name: v for v in (
         chain, TARGET, ("ok", "failed", "first_trace_id")),
     VoyageSpec(
         "deep-water", "Deep water", "M4",
-        "Loads the managed Postgres for three minutes and the Function and the load balancer for one, then checks "
-        "which of their metric families Insights reports within five minutes and which rise above their level of "
-        "the five minutes before. The database counts as moved by its load average. The pg clients run on the "
-        "target tentacle, or by default on one the round-trip CPU rule does not watch, because they load the "
-        "tentacle's own CPU too.",
-        (StepSpec("baseline", "each family over the 5 minutes before the load", 120),
-         StepSpec("start-pg", "pg: 8 clients for 180 s, off the round-trip rule's tentacle", 60),
-         StepSpec("start-fn", "fn: 5 calls a second for 60 s", 60),
-         StepSpec("start-lb", "lb: 20 calls a second for 60 s", 60),
+        f"Loads the managed Postgres with {sea.PG_CLIENTS} clients for {sea.PG_SECONDS} s, the Function for "
+        f"{sea.FN_SECONDS} s and the load balancer for {sea.LB_SECONDS} s, then checks which of their metric "
+        "families Insights reports within five minutes and which rise above their level of the "
+        f"{sea.BASELINE_S // 60} minutes before. The database counts as moved by its load average. The pg clients "
+        "run on the target tentacle, or by default on one the round-trip CPU rule does not watch. A pg run that is "
+        f"not still running {sea.PG_CHECK_S} s after it started fails the voyage with the tentacle's error.",
+        (StepSpec("baseline", f"each family over the {sea.BASELINE_S // 60} minutes before the load", 120),
+         StepSpec("start-pg", f"pg: {sea.PG_CLIENTS} clients for {sea.PG_SECONDS} s, off the round-trip rule's "
+                              f"tentacle, still running after {sea.PG_CHECK_S} s", 60),
+         StepSpec("start-fn", f"fn: {sea.FN_RPS} calls a second for {sea.FN_SECONDS} s", 60),
+         StepSpec("start-lb", f"lb: {sea.LB_RPS} calls a second for {sea.LB_SECONDS} s", 60),
          StepSpec("watch", "check each family for 5 minutes", 360), StepSpec("summary", "which families reported", 30)),
         deep_water, TARGET, ("reported_after_s", "moved_after_s", "missing")),
 )}
