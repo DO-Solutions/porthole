@@ -151,23 +151,23 @@ wontfix. Never write an observation nobody made.
 - reproduce: run the Log storm voyage, then search the Logs tab for the Droplet's name in body or resource
 - status: to verify
 
-## B-016  Spaces keys API, Spaces in tor1, and bucket probing     (to verify)
+## B-016  Spaces keys API, Spaces in tor1, and bucket probing     (verified 2026-10-09)
 - when: 2026-10-09 (build)   where: `infra/steps/spaces.py`, `infra/teardown.py`   finding: none yet
 - request we made / received: none; no token on the build box
 - response: n/a
 - expected: `POST /v2/spaces/keys` with `{"name", "grants": [{"bucket": "", "permission": "fullaccess"}]}` returns `{"key": {"access_key", "secret_key", ...}}`; Spaces is offered in tor1; an unsigned `HEAD https://tor1.digitaloceanspaces.com/<bucket>` answers 404 for a missing bucket and 403 for one that exists
 - observed: not observed yet
 - reproduce: `python infra/provision.py --only spaces`, then `python infra/teardown.py` to list it; if the step fails, skip it (Spaces is optional for the demo)
-- status: to verify
+- status: verified 2026-10-09; the Spaces key and bucket kraken-5f014f were created in tor1 by the first real run
 
-## B-017  Project resource URNs for clusters, apps and buckets     (to verify)
+## B-017  Project resource URNs for clusters, apps and buckets     (verified 2026-10-09)
 - when: 2026-10-09 (build)   where: `infra/steps/common.py` `Context.assign`   finding: none yet
 - request we made / received: none yet
 - response: n/a
 - expected: `POST /v2/projects/<id>/resources` accepts `do:kubernetes:<id>`, `do:app:<id>` and `do:space:<bucket>` as well as the documented Droplet, load balancer, dbaas and reserved IP URNs
 - observed: not observed yet. A refused assignment prints a warning and the run goes on; project membership only changes how the control panel groups resources
 - reproduce: run `provision.py` and look for "could not assign" lines
-- status: to verify
+- status: verified 2026-10-09; do:loadbalancer:<id>, do:dbaas:<id>, do:kubernetes:<id>, do:space:<name> were accepted by the project assign API and the LB, database and cluster report in Insights under those URNs
 
 ## B-018  The tentacle database user may lack CREATE on the public schema     (to verify)
 - when: 2026-10-09 (build)   where: `infra/steps/database.py`, tentacle `pg` scenario   finding: none yet
@@ -178,11 +178,57 @@ wontfix. Never write an observation nobody made.
 - reproduce: start the Deep water voyage, or `POST /scenario/pg` on tentacle-1, and read the run's error
 - status: to verify
 
-## B-019  Functions namespace in tor1 and the web function URL     (to verify)
+## B-019  Functions namespace in tor1 and the web function URL     (verified 2026-10-09)
 - when: 2026-10-09 (build)   where: `infra/steps/functions.py`   finding: none yet
 - request we made / received: none yet
 - response: n/a
 - expected: `POST /v2/functions/namespaces` with `{"region": "tor1", "label": "kraken"}` works, and the deployed function answers `{"pong": true}` at `<api_host>/api/v1/web/<namespace>/kraken/ping`
 - observed: not observed yet
 - reproduce: `python infra/provision.py --only functions`, then curl the `url` recorded in `infra/out/state.json`
-- status: to verify
+- status: verified 2026-10-09; namespace fn-595a… created in tor1; kraken/ping deployed with doctl from a workstation (the provisioner's doctl serverless plugin crashed with Illegal instruction inside a python:3.12-slim container) and answers {"pong": true} with 200
+
+## B-020  First boot on Ubuntu 24.04 failed at the venv step     (fixed)
+- when: 2026-10-09T03:21Z   where: `tentacle/install.sh` on all three tentacles   finding: none (our bug)
+- request we made / received: cloud-init ran the installer; `python3 -m venv --help` succeeded, so python3-venv was never installed, then `python3 -m venv` failed: "ensurepip is not available"
+- response: cloud-init `status: error`, no tentacle service, port 8800 closed; provisioning gave up after 900 s
+- expected: the installer installs python3-venv when it is missing
+- observed: the check tested the venv module, which exists without ensurepip
+- reproduce: a stock Ubuntu 24.04 Droplet with the installer as user_data
+- status: fixed in 478b640 (test ensurepip, rebuild a pip-less venv); the three boxes were repaired by hand
+
+## B-021  `GET /v2/registry` answers 412 on a team with several registries     (fixed)
+- when: 2026-10-09T03:11Z   where: `infra/steps/registry.py`   finding: DigitalOcean API behavior
+- request we made / received: `GET /v2/registry`
+- response: `412 This API is not supported if you have created multiple registries. Please use /v2/registries/{registry_name} instead.`
+- expected: the documented single-registry endpoint, or a listing
+- observed: teams with more than one registry must use `/v2/registries`
+- reproduce: any team with two registries
+- status: fixed in d5b5a3b (list `/v2/registries` first, fall back to `/v2/registry`)
+
+## B-022  `POST /v2/apps` with a GitHub source: "GitHub user not authenticated"     (open)
+- when: 2026-10-09T03:59Z and 04:01Z   where: `infra/steps/app.py`   finding: App Platform API
+- request we made / received: `POST /v2/apps` with the spec of `.do/app.yaml` (github source DO-Solutions/porthole, branch main)
+- response: `400 {"id":"bad_request","message":"GitHub user not authenticated"}`
+- expected: the app is created; the DigitalOcean GitHub app is installed on the org for all repositories, the control panel shows the integration as connected, and `POST /v2/apps/propose` with the same spec returns 200
+- observed: the create is refused for a personal access token; nothing in the docs says the API path needs a separate per-user GitHub authorization
+- reproduce: `POST /v2/apps` with any github source and a PAT
+- status: open; worked around by deploying from a DOCR image (`poseidon-docr/porthole:<sha>`); deploy-on-push can be switched on in the control panel
+
+## B-023  Fresh Droplet metric series carry no `resource_name` label     (open)
+- when: 2026-10-09T03:48Z   where: Insights PromQL API, region tor1   finding: Insights
+- request we made / received: `GET /v2/insights/query/tor1/prom/api/v1/query` with `{__name__=~"do_droplets_cpu.*",resource_urn=~"do:droplet:60748318.*"}`
+- response: series with `resource_urn` set and no `resource_name`, 30 minutes after creation; older Droplets in nyc3 carry `resource_name`
+- expected: the same labels on every Droplet series
+- observed: a selector on `resource_name` matches nothing for a new Droplet; Porthole's builder filters the fleet by name
+- reproduce: create a Droplet with monitoring on, query within the first hour
+- status: open; re-check after two hours; if the label never arrives, the builder must select by `resource_urn`
+
+## B-024  `kraken.yaml` creates its objects in `default`, not in a `kraken` namespace     (fixed)
+- when: 2026-10-09T04:02Z   where: `infra/k8s/kraken.yaml`   finding: none (our manifest)
+- request we made / received: `kubectl apply -f infra/k8s/kraken.yaml`
+- response: `deployment.apps/kraken-echo created`, `service/kraken-echo created` in `default`
+- expected: a `kraken` namespace, as the design's wording implies
+- observed: the manifest has no namespace
+- reproduce: apply and `kubectl get pods -n kraken`
+- status: documented here; the pod runs in `default` (pod kraken-echo, service kraken-echo 80/TCP)
+
