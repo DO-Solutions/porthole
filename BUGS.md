@@ -6,7 +6,7 @@ design could not confirm a fact; they move to open once someone observes the beh
 wontfix. Never write an observation nobody made.
 
 ```
-## B-014  Alert webhook carries no signature header     (open)
+## B-000  Alert webhook carries no signature header     (open)
 - when: 2026-10-12T14:03:11Z   where: head /hooks/insights   finding: A14 follow-up
 - request we made / received: POST /hooks/insights, headers [user-agent, content-type, authorization(Bearer), x-kraken], 1,212 bytes
 - response: 200
