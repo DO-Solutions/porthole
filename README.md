@@ -122,6 +122,11 @@ variable; the next deploy picks it up.
 3. The app's runtime logs in App Platform: one JSON object per line. The Logs page shows the last 300.
 4. A tentacle: `curl http://<ip>:8800/health` and `/scenarios` are open; `journalctl -u tentacle` on the box.
 5. Insights itself: [BUGS.md](BUGS.md) lists what is unverified or known to differ from the docs.
+6. A chart or voyage reads "no data" while the resource is busy: drop matchers one at a time. Labels vary per
+   metric, even on one Droplet: `do.droplets.cpu_utilization` carries only `__name__`, `do_tags`, `resource_urn`
+   and `service_name`, while the same Droplet's other series also carry `resource_region_slug` (B-023, B-026).
+   `GET .../prom/api/v1/series?match[]={resource_urn="do:droplet:<id>"}` with a `start` and `end` lists each
+   series with its labels. Select by `resource_urn`; the region is the path segment of the call, not a label.
 
 Security posture and how to report a problem: [SECURITY.md](SECURITY.md).
 

@@ -16,22 +16,29 @@ CPU = "do.droplets.cpu_utilization"
 @pytest.mark.parametrize("agg", ["avg", "sum", "max", "min"])
 def test_aggregations(agg):
     q = promql.build(CPU, agg, {}, "tor1", FLEET)
-    assert q == f'{agg} by (resource_urn) ({CPU}{{resource_region_slug="tor1", {TOR1_PIN}}})'
+    assert q == f'{agg} by (resource_urn) ({CPU}{{{TOR1_PIN}}})'
+
+
+def test_the_region_is_never_a_label_matcher():
+    """The region is the path segment of the call; do.droplets.cpu_utilization has no resource_region_slug (B-026)."""
+    for region in ("tor1", "syd1"):
+        for metric in (CPU, "do.apps.app_requests_per_second", "do.serverless.invocations"):
+            assert "region" not in promql.build(metric, "avg", {}, region, FLEET)
+            assert "region" not in promql.selector(metric, {}, region, FLEET)
 
 
 def test_rate_and_raw_selector():
     q = promql.build("do.droplets.network_receive_bytes", "rate", {}, "syd1", FLEET)
-    assert q == ('sum by (resource_urn) (rate(do.droplets.network_receive_bytes{resource_region_slug="syd1", '
+    assert q == ('sum by (resource_urn) (rate(do.droplets.network_receive_bytes{'
                  'resource_urn=~"do:droplet:600000003"}[5m]))')
-    assert promql.build(CPU, None, {}, "syd1", FLEET) == \
-        f'{CPU}{{resource_region_slug="syd1", resource_urn=~"do:droplet:600000003"}}'
+    assert promql.build(CPU, None, {}, "syd1", FLEET) == f'{CPU}{{resource_urn=~"do:droplet:600000003"}}'
     assert promql.build(CPU, "none", {}, "syd1", FLEET) == promql.build(CPU, None, {}, "syd1", FLEET)
 
 
 def test_filters_replace_the_fleet_pin():
     """A resource_name chip on a fleet member, by name or display name, becomes that member's URN (B-023)."""
     one = promql.build(CPU, "avg", promql.parse_filters("resource_name=kraken-tentacle-1"), "tor1", FLEET)
-    assert one == f'avg by (resource_urn) ({CPU}{{resource_region_slug="tor1", resource_urn="do:droplet:600000001"}})'
+    assert one == f'avg by (resource_urn) ({CPU}{{resource_urn="do:droplet:600000001"}})'
     assert promql.build(CPU, "avg", promql.parse_filters("resource_name=tentacle-1"), "tor1", FLEET) == one
     assert promql.build(CPU, "avg", promql.member_filters(FLEET.tentacle("tentacle-1")), "tor1", FLEET) == one
     two = promql.build(CPU, "max", promql.parse_filters(["resource_name=kraken-tentacle-1", "resource_name=tentacle-2",
@@ -40,23 +47,21 @@ def test_filters_replace_the_fleet_pin():
     assert two.count("resource_urn=") == 1 and "resource_name" not in two
     urn = promql.build("do.apps.app_requests_per_second", None,
                        promql.parse_filters("resource_urn=do:app:00000000-0000-0000-0000-000000000000"), "tor1", FLEET)
-    assert urn == ('do.apps.app_requests_per_second{resource_region_slug="tor1", '
-                   'resource_urn="do:app:00000000-0000-0000-0000-000000000000"}')
+    assert urn == 'do.apps.app_requests_per_second{resource_urn="do:app:00000000-0000-0000-0000-000000000000"}'
 
 
 def test_the_pin_follows_the_metric_family():
     lb = promql.build("do.load_balancers.requests_per_second", "sum", {}, "tor1", FLEET)
-    assert lb == ('sum by (resource_urn) (do.load_balancers.requests_per_second{resource_region_slug="tor1", '
+    assert lb == ('sum by (resource_urn) (do.load_balancers.requests_per_second{'
                   'resource_urn=~"do:loadbalancer:00000000-0000-0000-0000-000000000001"})')
     other = promql.build("do.gpu_droplets.gpu_utilization", None, {}, "syd1", FLEET)
-    assert other == 'do.gpu_droplets.gpu_utilization{resource_region_slug="syd1", resource_urn=~"do:droplet:600000003"}'
+    assert other == 'do.gpu_droplets.gpu_utilization{resource_urn=~"do:droplet:600000003"}'
 
 
 def test_members_without_a_urn_stay_selected_by_name():
     """The Function namespace has no URN in the fleet description, so its queries select and group by name."""
     fn = promql.build("do.serverless.invocations", "sum", {}, "tor1", FLEET)
-    assert fn == ('sum by (resource_name) (do.serverless.invocations{resource_region_slug="tor1", '
-                  'resource_name=~"kraken"})')
+    assert fn == 'sum by (resource_name) (do.serverless.invocations{resource_name=~"kraken"})'
     assert promql.build("do.serverless.invocations", "sum", promql.parse_filters("resource_name=kraken"), "tor1",
                         FLEET) == fn.replace('=~"kraken"', '="kraken"')
     with pytest.raises(BuilderError, match="have no URN in the fleet description"):

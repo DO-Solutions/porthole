@@ -1,10 +1,11 @@
 """Builder-mode PromQL for visitors and the checks on raw PromQL for the captain, plus unit heuristics.
 
-Every builder query is pinned to its region and to the fleet's resource URNs, so a visitor cannot send a
-discovery query to the shared team account. Fleet members are selected and grouped by resource_urn because fresh
-Droplets report no resource_name (B-023); a resource_name filter on a fleet member becomes its URN, and only members
-without a URN in the fleet description are selected by name. Metric names are written dotted, as Insights expects
-(finding A4)."""
+Every builder query is pinned to the fleet's resource URNs, so a visitor cannot send a discovery query to the
+shared team account. The region is the path segment of the Insights call and never a label matcher: labels vary
+per metric, and do.droplets.cpu_utilization carries no resource_region_slug (finding A22, B-026). Fleet members
+are selected and grouped by resource_urn because fresh Droplets report no resource_name (B-023); a resource_name
+filter on a fleet member becomes its URN, and only members without a URN in the fleet description are selected by
+name. Metric names are written dotted, as Insights expects (finding A4)."""
 from __future__ import annotations
 
 import math
@@ -145,7 +146,7 @@ def pin(metric: str, region: str, fleet: Fleet) -> str:
 def _select(metric: str, filters: dict[str, list[str]], region: str, fleet: Fleet) -> tuple[str, str]:
     """(selector, the label it picks fleet members by)."""
     filters = to_urns(filters, fleet)
-    matchers = [f"resource_region_slug={quote(region)}"]
+    matchers = []
     if not any(label in filters for label in ("resource_name", "resource_urn")):
         matchers.append(pin(metric, region, fleet))
     for label in sorted(filters):

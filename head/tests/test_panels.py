@@ -34,7 +34,9 @@ async def test_both_regions_are_asked_separately_and_never_summed(env):
     body = (await env.client.get("/api/insights/range", params=range_params(region="both"))).json()
     assert set(body["regions"]) == {"tor1", "syd1"}
     assert all(len(r["calls"]) == 1 and r["error"] is None for r in body["regions"].values())
-    assert 'resource_region_slug="syd1"' in body["regions"]["syd1"]["promql"]
+    assert body["regions"]["syd1"]["promql"] == \
+        'avg by (resource_urn) (do.droplets.cpu_utilization{resource_urn=~"do:droplet:600000003"})'
+    assert all("resource_region_slug" not in r["promql"] for r in body["regions"].values())  # B-026
     by = {(s["entity"], s["region"]) for s in body["series"]}
     assert by == {("kraken-tentacle-1", "tor1"), ("kraken-tentacle-2", "tor1"), ("kraken-tentacle-3", "syd1")}
     urns = {t.name: t.urn for t in env.deps.settings.fleet.tentacles}
@@ -252,7 +254,7 @@ async def test_dashboard_routes(env):
     assert body["dashboards_link"]["verified"] is True
     run = (await env.client.get("/api/dashboards/krakens-eye/run", params={"index": 0, "region": "tor1"})).json()
     assert run["chart"]["title"] == "Tentacle CPU" and run["unit"] == "percent"
-    assert 'resource_region_slug="tor1"' in run["promql"]
+    assert "resource_region_slug" not in run["promql"] and "$region" not in run["promql"]  # B-026
     assert 'resource_urn=~"do:droplet:600000001|do:droplet:600000002"' in run["promql"]
     assert {s["entity"] for s in run["series"]} == {"kraken-tentacle-1", "kraken-tentacle-2"}
     both = (await env.client.get("/api/dashboards/krakens-eye/run", params={"index": 0, "region": "both"})).json()

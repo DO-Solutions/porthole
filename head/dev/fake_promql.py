@@ -13,6 +13,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 LAG_S = 60.0  # ingestion plus one-minute resolution
+# Labels differ per metric (finding A22): the Droplet CPU series carries only these, with no resource_region_slug,
+# no resource_name and no host_id, while the Droplet's other series do carry resource_region_slug. A query that pins
+# the region by label finds no CPU series (B-026).
+ONLY_LABELS = {"do_droplets_cpu_utilization": ("__name__", "do_tags", "resource_urn", "service_name")}
+DROPLET_TAGS = '["insights-demo","kraken-tentacle"]'  # finding A23 (the real label also lists two project ids)
 
 # underscored name -> (unit, label variants). Names marked in watcher/probe_metrics.json as unverified are synthetic.
 FAMILIES: dict[str, dict[str, tuple[str, tuple[dict, ...]]]] = {
@@ -111,6 +116,10 @@ class SeriesModel:
                         del labels["resource_name"]
                     if e.kind == "tentacle" and e.ids.get("id"):
                         labels["host_id"] = str(e.ids["id"])
+                    if e.kind == "tentacle":
+                        labels |= {"do_tags": DROPLET_TAGS, "service_name": e.service_name or e.name}
+                    if metric in ONLY_LABELS:
+                        labels = {k: v for k, v in labels.items() if k in ONLY_LABELS[metric]}
                     out.append(Series(labels, e, metric))
         return out
 

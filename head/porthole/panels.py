@@ -303,8 +303,7 @@ class Panels:
                 errors.append({"region": r, **error_info(e)})
         if self.probe_mode == "family":
             for kind in sorted({e.kind for e in members} & set(self.probe_metrics)):
-                q = (f"count by (resource_urn, resource_name) "
-                     f"({self.probe_metrics[kind]}{{resource_region_slug={promql.quote(r)}}})")
+                q = f"count by (resource_urn, resource_name) ({self.probe_metrics[kind]})"
                 try:
                     body, _, _ = await self.call("panels.probe", "query", q, region=r)
                 except (InsightsError, httpx.HTTPError) as e:
@@ -339,7 +338,7 @@ class Panels:
         urns["$head_urn"] = self.fleet.head.urn if self.fleet.head else "none"
         for r in regions:
             tentacles = [t.urn for t in self.fleet.tentacles if t.region == r and t.urn] or ["none"]
-            q = template.replace("$region", r).replace("$tentacle", promql.regex_escape(tentacles))
+            q = template.replace("$tentacle", promql.regex_escape(tentacles))
             for var, urn in urns.items():
                 q = q.replace(var, urn)
             queries[r] = q

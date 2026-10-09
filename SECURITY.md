@@ -21,8 +21,9 @@ says how it protects both, and how to report a problem.
   with `Retry-After`. Behind App Platform the client address is the first `X-Forwarded-For` hop; a hop that is
   not an IP address is ignored. A caller can forge that hop, so the overall limits are the ones that hold.
 - **Caps apply on the server.** Every scenario parameter is clamped to the public caps (tighter than the tentacles'
-  own limits) whatever the page sends. Visitors get builder-mode queries pinned to the fleet's region and resource
-  names, which keeps discovery queries off the shared team account.
+  own limits) whatever the page sends. Visitors get builder-mode queries sent only to the fleet's regions (the region
+  is the path of the call) and pinned to the fleet's resource URNs, which keeps discovery queries off the shared
+  team account.
 - **The tentacles.** The head calls them over plain HTTP on their public addresses with a bearer key, because App
   Platform's basic tier has no fixed egress address. The key can only start bounded load on demo boxes. A TLS
   reverse proxy per tentacle is the upgrade path; it is not in this build.
