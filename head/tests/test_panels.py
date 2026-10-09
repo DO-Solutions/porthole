@@ -37,7 +37,9 @@ async def test_both_regions_are_asked_separately_and_never_summed(env):
     assert 'resource_region_slug="syd1"' in body["regions"]["syd1"]["promql"]
     by = {(s["entity"], s["region"]) for s in body["series"]}
     assert by == {("kraken-tentacle-1", "tor1"), ("kraken-tentacle-2", "tor1"), ("kraken-tentacle-3", "syd1")}
-    assert all(s["labels"] == {"resource_name": s["entity"]} for s in body["series"])
+    urns = {t.name: t.urn for t in env.deps.settings.fleet.tentacles}
+    assert all(s["labels"] == {"resource_urn": urns[s["entity"]]} for s in body["series"])
+    assert {s["display"] for s in body["series"]} == {"tentacle-1", "tentacle-2", "tentacle-3"}
 
 
 async def test_bad_region_and_builder_rejections(env):
@@ -250,10 +252,15 @@ async def test_dashboard_routes(env):
     assert body["dashboards_link"]["verified"] is True
     run = (await env.client.get("/api/dashboards/krakens-eye/run", params={"index": 0, "region": "tor1"})).json()
     assert run["chart"]["title"] == "Tentacle CPU" and run["unit"] == "percent"
-    assert 'resource_region_slug="tor1"' in run["promql"] and "kraken-tentacle-1|kraken-tentacle-2" in run["promql"]
+    assert 'resource_region_slug="tor1"' in run["promql"]
+    assert 'resource_urn=~"do:droplet:600000001|do:droplet:600000002"' in run["promql"]
     assert {s["entity"] for s in run["series"]} == {"kraken-tentacle-1", "kraken-tentacle-2"}
     both = (await env.client.get("/api/dashboards/krakens-eye/run", params={"index": 0, "region": "both"})).json()
-    assert set(both["regions"]) == {"tor1", "syd1"} and "kraken-tentacle-3" in both["regions"]["syd1"]["promql"]
+    assert set(both["regions"]) == {"tor1", "syd1"} and "do:droplet:600000003" in both["regions"]["syd1"]["promql"]
+    lb = next(i for i, c in enumerate(charts) if c["title"] == "Load balancer requests")
+    lb_run = (await env.client.get("/api/dashboards/krakens-eye/run", params={"index": lb, "region": "tor1"})).json()
+    assert 'resource_urn="do:loadbalancer:00000000-0000-0000-0000-000000000001"' in lb_run["promql"]
+    assert [s["entity"] for s in lb_run["series"]] == ["kraken-lb"]
     logs_chart = next(i for i, c in enumerate(charts) if c["promql"] is None)
     for params, code in (({"index": logs_chart}, "no_query"), ({"index": 99}, "no_query"),
                          ({"index": 0, "range": "2h"}, "bad_range"), ({"index": 0, "region": "ams3"}, "bad_region")):
@@ -366,6 +373,12 @@ def test_normalize_the_sample_matrix():
         ("kraken-tentacle-1", "tentacle-1", 1, "tor1")
     assert ours["points"] == [[1760277120, 2.1], [1760277180, 2.3], [1760277300, 61.4]]  # gap and NaN stay missing
     assert theirs["slot"] is None and theirs["display"] == "someone-elses-droplet"
+    # a name alone attributes a series only to members without a URN in the fleet description
+    stray = {"resource_name": "kraken-tentacle-1", "resource_urn": "do:droplet:1"}
+    fn = {"resource_name": "kraken", "resource_urn": "do:functions:kraken"}
+    body = {"data": {"result": [{"metric": stray, "value": [1, "1"]}, {"metric": fn, "value": [1, "1"]}]}}
+    assert [(s["entity"], s["slot"]) for s in normalize(body, "tor1", fleet)] == [("kraken-tentacle-1", None),
+                                                                                  ("kraken", 8)]
     families = group_families(fixture("label_values.json")["data"])
     assert list(families) == ["do.apps", "do.container_registry", "do.droplets", "do.load_balancers"]
     assert families["do.container_registry"][0]["dotted"] == "do.container_registry.storage_used_bytes"

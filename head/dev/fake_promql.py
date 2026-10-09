@@ -84,6 +84,7 @@ class SeriesModel:
     fleet: Any
     world: Any = None
     now: Callable[[], float] | None = None
+    droplet_names: bool = False  # fresh Droplets report no resource_name (B-023); True gives them one
     entities: list = field(default_factory=list)
     _by_region: dict = field(default_factory=dict)
 
@@ -106,6 +107,8 @@ class SeriesModel:
                     labels = {"__name__": metric, "resource_name": e.name,
                               "resource_urn": e.urn or f"do:{e.kind}:{e.ids.get('id') or e.name}",
                               "resource_region_slug": region, **extra}
+                    if e.kind == "tentacle" and not self.droplet_names:
+                        del labels["resource_name"]
                     if e.kind == "tentacle" and e.ids.get("id"):
                         labels["host_id"] = str(e.ids["id"])
                     out.append(Series(labels, e, metric))

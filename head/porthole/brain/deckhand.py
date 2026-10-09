@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from porthole import promql
 from porthole.brain.adapter import BrainContext, BrainEvent, BrainSession
 from porthole.brain.tools import Tool, ToolResult
 from porthole.clock import hhmm, iso, new_id, parse_iso
@@ -204,7 +205,8 @@ class Deckhand:
         await self._emit(s, "thinking", {"text": "plan: read its health and running scenarios, then CPU and memory "
                                                  "in Insights for the last 30 minutes"})
         status = await self._tool(s, "tentacle_status", {"name": t.name})
-        base = {"region": t.region, "filters": [f"resource_name={t.name}"], "agg": "avg", "range": "30m"}
+        member = [f"{label}={values[0]}" for label, values in promql.member_filters(t).items()]
+        base = {"region": t.region, "filters": member, "agg": "avg", "range": "30m"}
         cpu = await self._tool(s, "insights_query_range", {**base, "metric": "do.droplets.cpu_utilization"})
         mem = await self._tool(s, "insights_query_range", {**base, "metric": "do.droplets.memory_utilization"})
         running = [r for r in ((status["data"] or {}).get("running") or [] if status["ok"] else [])

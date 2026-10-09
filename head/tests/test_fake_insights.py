@@ -40,19 +40,34 @@ def test_range_shape_with_underscored_names(world):
     body = world["ins"].query_range("do.droplets.cpu_utilization", now - 600, now, "60s", region="tor1")
     assert body["status"] == "success" and body["data"]["resultType"] == "matrix"
     series = body["data"]["result"]
-    assert {s["metric"]["resource_name"] for s in series} == {"kraken-tentacle-1", "kraken-tentacle-2"}
+    assert {s["metric"]["resource_urn"] for s in series} == {"do:droplet:600000001", "do:droplet:600000002"}
     m = series[0]["metric"]
     assert m["__name__"] == "do_droplets_cpu_utilization" and m["resource_region_slug"] == "tor1"
-    assert m["resource_urn"].startswith("do:droplet:")
+    assert "resource_name" not in m  # B-023: fresh Droplets report no resource_name
     t, v = series[0]["values"][0]
     assert isinstance(t, int) and isinstance(v, str) and float(v) >= 0
 
 
-def test_aggregation_drops_the_name(world):
-    body = world["ins"].query('avg by (resource_name) (do.droplets.cpu_utilization{resource_region_slug="tor1"})',
+def test_droplet_names_behind_a_flag(world):
+    """With droplet_names the Droplet series carry resource_name, as older Droplets do; other kinds always do."""
+    q = "count by (resource_urn, resource_name) (do.droplets.cpu_utilization)"
+    named = FakeInsights(world["fleet"], world["tentacles"], world["clock"], droplet_names=True)
+    ins = Insights("test-token-0000", transport=named.transport(), base_url="http://fake")
+    assert {s["metric"].get("resource_name") for s in ins.query(q, region="tor1")["data"]["result"]} == {
+        "kraken-tentacle-1", "kraken-tentacle-2"}
+    assert {s["metric"].get("resource_name") for s in world["ins"].query(q, region="tor1")["data"]["result"]} == {None}
+    lb = world["ins"].query("count by (resource_name) (do.load_balancers.requests_per_second)", region="tor1")
+    assert [s["metric"] for s in lb["data"]["result"]] == [{"resource_name": "kraken-lb"}]
+
+
+def test_aggregation_keeps_only_the_grouping_label(world):
+    body = world["ins"].query('avg by (resource_urn) (do.droplets.cpu_utilization{resource_region_slug="tor1"})',
                               region="tor1")
     assert body["data"]["resultType"] == "vector"
-    assert all(set(s["metric"]) == {"resource_name"} for s in body["data"]["result"])
+    assert all(set(s["metric"]) == {"resource_urn"} for s in body["data"]["result"])
+    by_name = world["ins"].query('avg by (resource_name) (do.droplets.cpu_utilization{resource_region_slug="tor1"})',
+                                 region="tor1")
+    assert [s["metric"] for s in by_name["data"]["result"]] == [{}]  # B-023: both tentacles fold into one series
 
 
 def test_underscored_names_are_rejected_with_422(world):

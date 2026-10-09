@@ -6,7 +6,7 @@
   "default_refresh": "30s",
   "variables": [
     {"name": "tentacle", "type": "list", "source": "label_values", "metric": "do.droplets.cpu_utilization",
-     "label": "resource_name", "regex": "kraken-tentacle-.*", "multi": true, "all": true},
+     "label": "resource_urn", "regex": "do:droplet:.*", "multi": true, "all": true},
     {"name": "threshold", "type": "text", "value": "60", "constant": true}
   ],
   "groups": [

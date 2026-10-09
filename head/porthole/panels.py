@@ -29,11 +29,12 @@ LABEL_NAMES = set(promql.FLEET_LABELS) | set(promql.ENUM_LABELS) | {
 
 
 def entity_for(labels: dict, fleet: Fleet) -> Entity | None:
-    name = labels.get("resource_name")
-    if name and (e := fleet.entity(name)):
+    """The fleet member of a series, by resource_urn (fresh Droplets carry no resource_name, B-023). A name only
+    identifies members that have no URN in the fleet description."""
+    if e := fleet.by_urn(labels.get("resource_urn")):
         return e
-    urn = labels.get("resource_urn")
-    return next((e for e in fleet.entities() if urn and e.urn == urn), None)
+    e = fleet.entity(labels["resource_name"]) if labels.get("resource_name") else None
+    return e if e and not e.urn else None
 
 
 def normalize(body: Any, region: str, fleet: Fleet) -> list[dict]:
@@ -334,9 +335,14 @@ class Panels:
             raise ApiError(400, "bad_range", str(e)) from None
         template = charts[index]["promql"]
         queries = {}
+        urns = {f"${kind}_urn": (s.urn or "none") for kind, s in self.fleet.sea.items()}
+        urns["$head_urn"] = self.fleet.head.urn if self.fleet.head else "none"
         for r in regions:
-            names = [t.name for t in self.fleet.tentacles if t.region == r] or ["none"]
-            queries[r] = template.replace("$region", r).replace("$tentacle", promql.regex_escape(names))
+            tentacles = [t.urn for t in self.fleet.tentacles if t.region == r and t.urn] or ["none"]
+            q = template.replace("$region", r).replace("$tentacle", promql.regex_escape(tentacles))
+            for var, urn in urns.items():
+                q = q.replace(var, urn)
+            queries[r] = q
         payload = await self.range_payload(regions, queries, range_s, promql.step_seconds(None, range_s),
                                            promql.unit_for(template), "panels.dashboard")
         return {**payload, "chart": {k: charts[index].get(k) for k in ("title", "type", "legend", "group")}}

@@ -41,6 +41,8 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORTHOLE_PORT", "8080")))
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--droplet-logs", action="store_true", help="pretend Droplet logs reach Insights (A6b fixed)")
+    ap.add_argument("--droplet-names", action="store_true",
+                    help="give Droplet series a resource_name, as older Droplets have (B-023)")
     a = ap.parse_args()
     env = {**DEV_ENV, "PORTHOLE_FLEET_JSON": FLEET.read_text(),
            "PORTHOLE_PUBLIC_URL": f"http://{a.host}:{a.port}", **{k: v for k, v in os.environ.items()
@@ -59,7 +61,8 @@ def main() -> None:
                 pass
         threading.Thread(target=post, daemon=True).start()
 
-    fake = FakeInsights(settings.fleet, fleet, droplet_logs=a.droplet_logs, public_url=settings.public_url,
+    fake = FakeInsights(settings.fleet, fleet, droplet_logs=a.droplet_logs, droplet_names=a.droplet_names,
+                        public_url=settings.public_url,
                         hook_bearer=settings.hook_bearer, hook_secret=settings.hook_secret,
                         head_logs=lambda: holder["app"].state.deps.log.records(300) if "app" in holder else [],
                         on_notify=deliver)

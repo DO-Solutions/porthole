@@ -2,7 +2,8 @@
 
 It backs the tests (mounted into the harness through an in-process transport) and runs as the insights-fake
 service in docker-compose. Standalone: python head/dev/fake_insights.py, port 9000, fleet from
-PORTHOLE_FLEET_JSON, FAKE_WATCH_TENTACLES=1 to follow real tentacles, FAKE_DROPLET_LOGS=1 to serve their logs."""
+PORTHOLE_FLEET_JSON, FAKE_WATCH_TENTACLES=1 to follow real tentacles, FAKE_DROPLET_LOGS=1 to serve their logs,
+FAKE_DROPLET_NAMES=1 to give Droplet series a resource_name (B-023: fresh Droplets have none)."""
 from __future__ import annotations
 
 import asyncio
@@ -86,10 +87,11 @@ def in_process_transport(app: Any) -> httpx.MockTransport:
 
 class FakeInsights:
     def __init__(self, fleet: Fleet, world: Any = None, clock: Any = None, *, droplet_logs: bool = False,
-                 reject_metricless: bool = False, public_url: str = "http://127.0.0.1:8080", hook_bearer: str = "",
-                 hook_secret: str = "", head_logs: Any = None, on_notify: Any = None, rules_path: Path | None = None):
+                 droplet_names: bool = False, reject_metricless: bool = False,
+                 public_url: str = "http://127.0.0.1:8080", hook_bearer: str = "", hook_secret: str = "",
+                 head_logs: Any = None, on_notify: Any = None, rules_path: Path | None = None):
         self.fleet, self.clock, self.reject_metricless = fleet, clock, reject_metricless
-        self.model = SeriesModel(fleet, world, now=lambda: self.now().timestamp())
+        self.model = SeriesModel(fleet, world, now=lambda: self.now().timestamp(), droplet_names=droplet_names)
         self.store = FakeStore(fleet, self.model, self.now, public_url, hook_bearer, hook_secret, world,
                                droplet_logs, head_logs, rules_path, on_notify)
         self.requests: list[tuple[str, str]] = []
@@ -352,6 +354,7 @@ def main() -> None:
         threading.Thread(target=lambda: _post(hook_url or d["url"], d), daemon=True).start()
 
     fake = FakeInsights(fleet, world, droplet_logs=os.environ.get("FAKE_DROPLET_LOGS") == "1",
+                        droplet_names=os.environ.get("FAKE_DROPLET_NAMES") == "1",
                         public_url=os.environ.get("PORTHOLE_PUBLIC_URL", "http://127.0.0.1:8080"),
                         hook_bearer=os.environ.get("PORTHOLE_HOOK_BEARER", ""),
                         hook_secret=os.environ.get("PORTHOLE_HOOK_SECRET", ""), on_notify=deliver)

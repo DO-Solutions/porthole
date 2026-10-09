@@ -61,7 +61,7 @@ async function loadWater() {
     const p = await api("/api/insights/range", { params: { region: r, metric: "do.droplets.cpu_utilization",
       agg: "avg", range: "30m" } });
     water = drawRange(box, p, { empty: "Insights has no Droplet CPU for the fleet in this region yet." });
-    $("#water-promql").textContent = "avg by (resource_name) (do.droplets.cpu_utilization)";
+    $("#water-promql").textContent = "avg by (resource_urn) (do.droplets.cpu_utilization)";
   } catch (e) { clear(box).append(el("p", { class: "empty" }, errorText(e))); }
 }
 

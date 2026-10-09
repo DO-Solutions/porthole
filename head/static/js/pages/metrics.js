@@ -70,6 +70,7 @@ async function run(card, asWritten = false) {
       ? await api("/api/insights/promql", { method: "POST", captain: true,
         body: { region: region(cfg), query: card.promql.value, range: rangeSel.value } })
       : await api("/api/insights/range", { params: { region: region(cfg), metric: card.metric, agg: card.agg,
+        // the head turns each fleet name into its resource_urn (fresh Droplets have no resource_name, B-023)
         range: rangeSel.value, filters: [...card.names].map((n) => `resource_name=${n}`) } });
     if (!asWritten) card.promql.value = p.promql;
     card.handle = drawRange(card.chartBox, p);
@@ -86,7 +87,7 @@ function addCard(metric, agg = "avg") {
   const card = { metric, agg, names: new Set(), handle: null };
   card.chartBox = el("div", { class: "chart" });
   card.promql = el("textarea", { class: "promql", rows: "2", readonly: true, "aria-label": `PromQL for ${metric}` });
-  card.chips = el("div", { class: "chips", role: "group", "aria-label": "resource_name filter" });
+  card.chips = el("div", { class: "chips", role: "group", "aria-label": "fleet member filter" });
   card.status = el("span", { class: "small dim" });
   const aggSel = el("select", { "aria-label": "aggregate", onchange: (ev) => { card.agg = ev.target.value; run(card); } },
     ["avg", "sum", "max", "min", "rate", "none"].map((a) => el("option", { value: a, selected: a === agg ? true : null }, a)));

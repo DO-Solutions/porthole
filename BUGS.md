@@ -232,3 +232,11 @@ wontfix. Never write an observation nobody made.
 - reproduce: apply and `kubectl get pods -n kraken`
 - status: documented here; the pod runs in `default` (pod kraken-echo, service kraken-echo 80/TCP)
 
+## B-025  First churn voyage times out at metric-appears: the head selected the tentacle by `resource_name`     (fixed)
+- when: 2026-10-09T04:07Z to 04:16Z, run v-28f016   where: head voyage `churn` on kraken-tentacle-1, tor1   finding: A19 (consequence of B-023)
+- request we made / received: the instant query the head builds for each sample, `avg by (resource_name) (do.droplets.cpu_utilization{resource_region_slug="tor1", resource_name="kraken-tentacle-1"})`
+- response: an empty result on every sample; the step note read "no data" until the step timed out
+- expected: the burn on kraken-tentacle-1 showing above 50 %
+- observed: the burn was real; `do.droplets.cpu_utilization{resource_urn="do:droplet:607483182"}` returned data in the same window. The series carry no `resource_name` (B-023), so every selector on the name matched nothing: the builder's fleet pin and chips, voyage readings, the Brain's slow-tentacle check and the dashboard sidecar's tentacle charts
+- reproduce: the fake Insights now drops `resource_name` from Droplet series (`FAKE_DROPLET_NAMES=1` or `run_local.py --droplet-names` puts it back); with the old head, the churn, alert-round-trip and two-seas voyage tests and the Brain's slow-tentacle test fail
+- status: fixed in `fix(head): select fleet members by resource_urn, not resource_name`; the head selects and groups by `resource_urn` and names series from the fleet description. Not yet re-run on the live fleet

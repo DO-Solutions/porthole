@@ -1,7 +1,10 @@
 """Builder-mode PromQL for visitors and the checks on raw PromQL for the captain, plus unit heuristics.
 
-Every builder query is pinned to its region and to the fleet's resource names, so a visitor cannot send a
-discovery query to the shared team account. Metric names are written dotted, as Insights expects (finding A4)."""
+Every builder query is pinned to its region and to the fleet's resource URNs, so a visitor cannot send a
+discovery query to the shared team account. Fleet members are selected and grouped by resource_urn because fresh
+Droplets report no resource_name (B-023); a resource_name filter on a fleet member becomes its URN, and only members
+without a URN in the fleet description are selected by name. Metric names are written dotted, as Insights expects
+(finding A4)."""
 from __future__ import annotations
 
 import math
@@ -29,6 +32,9 @@ ENUM_LABELS: dict[str, frozenset[str]] = {
 FAMILIES = ("droplets", "load_balancers", "databases", "kubernetes", "apps", "container_registry", "spaces",
             "serverless", "nat_gateways", "nfs", "vector_databases", "volumes", "gpu_droplets")
 DURATION = re.compile(r"^(\d+)([smhd]?)$")
+FAMILY_KIND = {"droplets": "tentacle", "apps": "app", "load_balancers": "load_balancer", "databases": "database",
+               "kubernetes": "kubernetes", "serverless": "functions", "spaces": "spaces",
+               "container_registry": "registry"}
 
 
 class BuilderError(ValueError):
@@ -60,8 +66,8 @@ def check_metric(metric: str) -> str:
 
 def fleet_values(fleet: Fleet) -> dict[str, set[str]]:
     entities = fleet.entities()
-    return {"resource_name": {e.name for e in entities}, "resource_urn": {e.urn for e in entities if e.urn},
-            "service_name": set(fleet.service_names())}
+    return {"resource_name": {e.name for e in entities} | {e.display for e in entities},
+            "resource_urn": {e.urn for e in entities if e.urn}, "service_name": set(fleet.service_names())}
 
 
 def parse_filters(raw: Any) -> dict[str, list[str]]:
@@ -96,26 +102,74 @@ def check_filters(filters: dict[str, list[str]], fleet: Fleet) -> None:
                                f"{list(FLEET_LABELS) + sorted(ENUM_LABELS)}")
 
 
-def selector(metric: str, filters: dict[str, list[str]], region: str, fleet: Fleet) -> str:
+def member_filters(entity: Any) -> dict[str, list[str]]:
+    """The builder filter for one fleet member: its URN, or its name when the fleet description has no URN."""
+    return {"resource_urn": [entity.urn]} if entity.urn else {"resource_name": [entity.name]}
+
+
+def to_urns(filters: dict[str, list[str]], fleet: Fleet) -> dict[str, list[str]]:
+    """resource_name filters on fleet members (by name or display name) as resource_urn filters."""
+    if not filters.get("resource_name"):
+        return filters
+    out = {label: list(values) for label, values in filters.items() if label != "resource_name"}
+    by_name = []
+    for value in filters["resource_name"]:
+        e = fleet.entity(value)
+        if e and e.urn:
+            urns = out.setdefault("resource_urn", [])
+            if e.urn not in urns:
+                urns.append(e.urn)
+        elif (e.name if e else value) not in by_name:
+            by_name.append(e.name if e else value)
+    if by_name and out.get("resource_urn"):
+        raise BuilderError(f"resource_name values {by_name} have no URN in the fleet description, so they cannot "
+                           "share a chart with members selected by URN; chart them on their own")
+    if by_name:
+        out["resource_name"] = by_name
+    return out
+
+
+def pin(metric: str, region: str, fleet: Fleet) -> str:
+    """The matcher that keeps a query on the fleet: the URNs of the region's members that report this metric
+    family, or their names when none of them has a URN."""
+    in_region = [e for e in fleet.entities() if e.region == region] or fleet.entities()
+    parts = metric.split(".")
+    kind = FAMILY_KIND.get(parts[1]) if len(parts) > 2 else None
+    members = [e for e in in_region if e.kind == kind] or in_region
+    urns = sorted({e.urn for e in members if e.urn})
+    if urns:
+        return f"resource_urn=~{regex_alternation(urns)}"
+    return f"resource_name=~{regex_alternation(sorted({e.name for e in members}))}"
+
+
+def _select(metric: str, filters: dict[str, list[str]], region: str, fleet: Fleet) -> tuple[str, str]:
+    """(selector, the label it picks fleet members by)."""
+    filters = to_urns(filters, fleet)
     matchers = [f"resource_region_slug={quote(region)}"]
     if not any(label in filters for label in ("resource_name", "resource_urn")):
-        names = sorted(set(fleet.names_in_region(region)) or {e.name for e in fleet.entities()})
-        matchers.append(f"resource_name=~{regex_alternation(names)}")
+        matchers.append(pin(metric, region, fleet))
     for label in sorted(filters):
         values = filters[label]
         matchers.append(f"{label}={quote(values[0])}" if len(values) == 1 else f"{label}=~{regex_alternation(values)}")
-    return f"{metric}{{{', '.join(matchers)}}}"
+    by = "resource_name" if any(m.startswith("resource_name=") for m in matchers) else "resource_urn"
+    return f"{metric}{{{', '.join(matchers)}}}", by
+
+
+def selector(metric: str, filters: dict[str, list[str]], region: str, fleet: Fleet) -> str:
+    return _select(metric, filters, region, fleet)[0]
 
 
 def build(metric: str, agg: str | None, filters: dict[str, list[str]], region: str, fleet: Fleet,
-          group_by: str = "resource_name") -> str:
-    """The query the builder writes, e.g. avg by (resource_name) (do.droplets.cpu_utilization{...})."""
+          group_by: str | None = None) -> str:
+    """The query the builder writes, e.g. avg by (resource_urn) (do.droplets.cpu_utilization{...}). It groups by
+    the label the fleet members were selected by unless group_by says otherwise."""
     metric = check_metric(metric)
     agg = (agg or "").strip().lower() or None
     if agg not in (None, "none", *AGGS):
         raise BuilderError(f"agg must be one of {list(AGGS)}")
     check_filters(filters, fleet)
-    sel = selector(metric, filters, region, fleet)
+    sel, by = _select(metric, filters, region, fleet)
+    group_by = group_by or by
     if agg in (None, "none"):
         return sel
     if agg == "rate":

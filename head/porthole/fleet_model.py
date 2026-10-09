@@ -119,8 +119,8 @@ class Fleet:
                  if name in (e.name, e.display) or (e.service_name and name == e.service_name)]
         return min(found, key=lambda e: 0 if e.slot else 1) if found else None
 
-    def names_in_region(self, region: str) -> list[str]:
-        return [e.name for e in self.entities() if e.region == region]
+    def by_urn(self, urn: str | None) -> Entity | None:
+        return next((e for e in self.entities() if urn and e.urn == urn), None)
 
     def service_names(self) -> list[str]:
         names = [t.service_name for t in self.tentacles]

@@ -31,8 +31,12 @@ def tentacle(ctx: Any, name: str | None) -> Any:
 
 
 async def value(ctx: Any, metric: str, name: str, region: str, agg: str = "avg") -> float | None:
-    """One fresh instant value for one fleet member (no panel cache: voyages need each reading)."""
-    q = promql.build(metric, agg, {"resource_name": [name]}, region, ctx.fleet)
+    """One fresh instant value for one fleet member, selected by its URN (no panel cache: voyages need each
+    reading)."""
+    member = ctx.fleet.entity(name)
+    if member is None:
+        raise VoyageFailed(f"{name} is not in the fleet description")
+    q = promql.build(metric, agg, promql.member_filters(member), region, ctx.fleet)
     body = await ctx.insights("query", q, region=region)
     result = ((body or {}).get("data") or {}).get("result") or []
     return float(result[0]["value"][1]) if result else None

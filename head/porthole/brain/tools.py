@@ -132,7 +132,8 @@ def build_tools(deps: Any) -> dict[str, Tool]:
              fleet_describe, False),
         Tool("tentacle_status", "/health and running scenarios of one tentacle", _schema(name={**s, "req": True}),
              tentacle_status, False),
-        Tool("insights_query_range", "a builder-mode range query, at most 6 h",
+        Tool("insights_query_range", "a builder-mode range query, at most 6 h; pick fleet members with filters "
+             "like resource_urn=do:droplet:1 (a resource_name filter on a fleet member is turned into its URN)",
              _schema(region=dict(s), metric={**s, "req": True}, filters={"type": "array", "items": s},
                      agg=dict(s), range=dict(s)), insights_query_range, False),
         Tool("insights_alert_instances", "alert instances of the fleet's rules", _schema(status=dict(s),

@@ -65,5 +65,7 @@ the same order is `SLOT_PALETTE` in `porthole/config.py` and `palette` in `/api/
 | 7 | kubernetes | `--fleet-3` | `#e2b658` |
 | 8 | function | `--fleet-7` | `#9ba3a4` |
 
-Series whose `resource_name` is not in the fleet are drawn in `--dim`. A chart never draws more than 8 series; the
+Series whose `resource_urn` is not in the fleet are drawn in `--dim` and labelled with their `resource_name` when
+they have one. Members without a URN in the fleet description (the Function namespace, the Spaces bucket) are matched
+by `resource_name`. A chart never draws more than 8 series; the
 rest fold into "+N more (table view)".
