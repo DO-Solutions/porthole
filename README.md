@@ -155,6 +155,11 @@ variable; the next deploy picks it up.
    the tentacles are on the public internet. Keep the voyage runner (outside this repo) and the demo schedule out of
    that hour instead. The Stir page lists a run the restart cut short with reason `error` and the restart time
    (B-036). On the box, `journalctl -u apt-daily-upgrade -u tentacle --since 06:00` shows both.
+10. The Alerts page lists a rule labeled "not in the rule list: a mirrored legacy Monitoring policy". Creating a
+    legacy Monitoring alert policy (`POST /v2/monitoring/alerts`) creates an Insights rule with its own id in the
+    same second; `GET /v2/insights/alert-rules` never lists it, `GET /v2/insights/alert-rules/{id}` returns it, and
+    deleting the policy deletes the rule within 5 s (A39, B-009). The team's two untagged policies, CPU above 70
+    for 5m and above 50 for 30m, are mirrored this way and watch every Droplet of the team.
 
 Security posture and how to report a problem: [SECURITY.md](SECURITY.md).
 

@@ -88,14 +88,14 @@ wontfix. Never write an observation nobody made.
 - reproduce: `insights_harness.py probe naming <channel id> --write`
 - status: to verify
 
-## B-009  The rule list omits rules made in the control panel     (to verify)
-- when: 2026-10-08T23:13Z (Atlas write probe)   where: `GET /v2/insights/alert-rules`   finding: A2 sharpened
-- request we made / received: GET /v2/insights/alert-rules?per_page=100 after creating two rules through the API
-- response: 200 listing the two API-made rules, but not "CPU is running high", which the same owner made in the control panel and which GET by id returns
+## B-009  The rule list omits the Insights rules mirrored from legacy Monitoring policies     (open)
+- when: 2026-10-08T23:13Z (Atlas write probe); 2026-10-09T14:40Z (write probe on kraken-tentacle-1, work token)   where: `GET /v2/insights/alert-rules`, `POST /v2/monitoring/alerts`   finding: A2 sharpened, A39
+- request we made / received: GET /v2/insights/alert-rules?per_page=100 after creating two rules through the API. On 2026-10-09: POST /v2/monitoring/alerts (`v1/insights/droplet/memory_utilization_percent`, GreaterThan 10, window 5m, entities [607483182], one email), GET /v2/insights/alert-rules and GET /v2/insights/alert-rules/{id} for the rule it produced, then DELETE /v2/monitoring/alerts/{uuid}
+- response: 200 listing the two API-made rules, but not "CPU is running high" (`25cd5489-13f6-430f-a9fd-a9e2676c1ce0`, same owner), which GET by id returns. The POST made policy `8c178b10-5d3b-4ce8-ad4d-f28faf50cd03` at 14:40:10Z, and Insights rule `111074d4-1079-488b-8d4f-64c2833d4ca6` existed in the same second; GET by id answered 200 while the list still returned the same six rules without it. The DELETE at 14:42:14Z answered 204, and within 5 s GET by id answered 404
 - expected: every rule of the team in the list
-- observed: as in the response line, in one probe. The head never lists rules: it reads the ids recorded by provisioning; the fake keeps an empty list
-- reproduce: `insights_harness.py probe rules-visibility`
-- status: to verify
+- observed: creating a legacy Monitoring policy creates an Insights rule with its own id (`created_at` 14:40:10Z, ACTIVE, owner = the team context), mapped from the policy: name = the policy's description, `query.metric` `do.droplets.memory_utilization`, `resource_urns` = the policy's entities as URNs, `EVALUATION_WINDOW_5M`, `thresholds {critical: 10, GREATER_THAN}`, the policy's email mapped onto the team's existing Insights email channel `kraken-email` (matched by address), `RE_ALERT_DURATION_4H`. Its instance fired at 14:41:12Z (value 43.4, CRITICAL), 62 s after creation. Deleting the policy made the rule 404 and resolved its instance (`resolved_at` 14:42:14Z) within 5 s. Neither the policy nor the rule references the other. So the team's two rules the list leaves out, `25cd5489-…` ("CPU is running high", > 70, window 5m) and `d4bede3a-5365-4afb-83e7-c0bdfbefc149` ("CPU Utilization Percent is running high", > 50, window 30m), both created 2026-09-18, are the mirrors of its two untagged legacy policies, not rules anyone made in the control panel (A39). The head never lists rules: it reads the ids recorded by provisioning; the fake keeps an empty list
+- reproduce: `insights_harness.py probe rules-visibility`; for the mirror, create a legacy policy on one Droplet with `POST /v2/monitoring/alerts`, find its rule through `GET /v2/insights/alert-instances`, read it by id, then delete the policy
+- status: open; observed on 2026-10-08 and confirmed by the 2026-10-09 write probe (A39)
 
 ## B-010  Dotted names for the catalog are derived by a heuristic     (to verify)
 - when: 2026-10-09 (build)   where: head `porthole/promql.py` `dotted()`, Metrics catalog   finding: A4

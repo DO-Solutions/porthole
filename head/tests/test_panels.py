@@ -200,13 +200,13 @@ async def test_alerts_show_instances_of_rules_the_fleet_does_not_know(env):
     m = unknown[MIRROR_50]
     assert (m["name"], m["operator"], m["critical"], m["window"], m["status"]) == (
         "CPU Utilization Percent is running high", ">", 50, "30m", "active")
-    assert m["label"] == "not in the rule list (mirrored legacy policy?)" and m["known"] is False
+    assert m["label"] == "not in the rule list: a mirrored legacy Monitoring policy" and m["known"] is False
     assert unknown["0f0f0f0f-0000-4000-8000-000000000000"]["label"] == "rule not found by id"
     theirs = [i for i in body["instances"] if i["rule_label"]]
     active = next(i for i in theirs if i["rule_id"] == MIRROR_70)
     assert (active["rule_name"], active["entity"], active["status"], active["severity"]) == (
         "CPU is running high", "tentacle-1", "active", "critical")
-    assert active["rule_label"] == "not in the rule list (mirrored legacy policy?)"
+    assert active["rule_label"] == "not in the rule list: a mirrored legacy Monitoring policy"
     outside = next(i for i in theirs if i["rule_id"] == MIRROR_50 and i["entity"] != "tentacle-1")
     assert outside["entity"] == "a resource outside the fleet" and outside["resource_urn"] is None
     assert body["instances"][0]["id"] == active["id"]  # newest first, ours and theirs together

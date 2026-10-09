@@ -9,7 +9,8 @@ placeholders:
 
 `infra/provision.py` (step 14, insights) substitutes both, creates each rule with the work token, and records the
 rule ids in `infra/out/state.json`; `infra/fleet.py` copies them into `PORTHOLE_FLEET_JSON` under `watcher.rules`.
-The head reads rules only by id, because the list endpoint omits rules created in the control panel (finding A2).
+The head reads rules only by id, because the list endpoint leaves out the rules mirrored from legacy Monitoring
+policies (findings A2, A39).
 
 | purpose | metric | operator | window | status |
 |---|---|---|---|---|

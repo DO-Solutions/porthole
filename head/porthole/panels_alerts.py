@@ -1,11 +1,12 @@
 """The alerts overview: rules fetched by id from the fleet description, their instances, and the channels.
 
-Rules are never discovered by listing, because the list omits rules created in the control panel (finding A2).
-The team's instance list also carries rules nobody here created: the legacy Monitoring policies come back as
-Insights rules with new ids that GET /alert-rules never lists, and they fire on every Droplet of the team, the
-tentacles included (finding A39). Those instances are shown too, and each unknown rule id is looked up once by
-id and kept for the life of the process. Pausing and resuming needs write mode and works only on the fleet's own
-rules."""
+Rules are never discovered by listing, because the list leaves rules out (finding A2). The team's instance list
+also carries rules nobody here created. A legacy Monitoring policy (POST /v2/monitoring/alerts) is mirrored, in the
+same second, into an Insights rule with its own id that GET /alert-rules never lists, and deleting the policy
+deletes the rule (finding A39, write probe 2026-10-09). The team's two untagged policies have no resource filter,
+so their mirrors fire on every Droplet of the team, the tentacles included. Those instances are shown too, and
+each unknown rule id is looked up once by id and kept for the life of the process. Pausing and resuming needs
+write mode and works only on the fleet's own rules."""
 from __future__ import annotations
 
 import asyncio
@@ -46,7 +47,7 @@ def rule_view(rule: dict, ref: RuleRef) -> dict:
             "error": None}
 
 
-UNLISTED = "not in the rule list (mirrored legacy policy?)"
+UNLISTED = "not in the rule list: a mirrored legacy Monitoring policy"
 LISTED_ELSEWHERE = "not a fleet rule"
 NOT_FOUND = "rule not found by id"
 OUTSIDE = "a resource outside the fleet"
