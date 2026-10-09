@@ -5,6 +5,7 @@ head's JSON error shape, {"error": {"code", "message", "detail"}}, with a matchi
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -21,8 +22,10 @@ SECURITY_HEADERS = (
 )
 MAX_BODY = 64 * 1024
 
-# per-IP and overall requests per minute (design section 6); None means no overall limit
-LIMITS = {"mutate": (12, 60), "brain": (3, 10), "hook": (60, None)}
+# per-IP and overall requests per minute (design section 6). The design gives the webhook a per-address limit
+# only; the overall cap of 600 a minute is far above what Insights delivers and bounds a flood that rotates
+# forged X-Forwarded-For addresses, which would otherwise be unlimited.
+LIMITS = {"mutate": (12, 60), "brain": (3, 10), "hook": (60, 600)}
 
 
 class ApiError(Exception):
@@ -87,12 +90,14 @@ class RateLimiter:
 
 
 def client_ip(request: Request, trust_proxy: bool) -> str:
-    """The first X-Forwarded-For hop when the proxy is trusted (App Platform), else the socket peer."""
+    """The first X-Forwarded-For hop when the proxy is trusted (App Platform), else the socket peer. A hop that
+    is not an IP address is ignored, so a forged header cannot become a 5,000-character rate-limit key."""
     if trust_proxy:
-        forwarded = request.headers.get("x-forwarded-for", "")
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
+        first = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        try:
+            return str(ipaddress.ip_address(first))
+        except ValueError:
+            pass
     return request.client.host if request.client else "unknown"
 
 

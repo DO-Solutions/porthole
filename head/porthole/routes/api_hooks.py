@@ -1,6 +1,7 @@
 """Delivery routes: the last webhook deliveries (authenticated and rejected), and one delivery in full.
 
-Headers come back with Authorization reduced to its scheme; bodies are shown as received."""
+Headers come back with Authorization reduced to its scheme and configured secrets replaced; bodies are shown as
+received. A rejected delivery shows its metadata only, so posting to the webhook puts no text on the page."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Query, Request
@@ -20,7 +21,8 @@ async def deliveries(request: Request, limit: int = Query(50, ge=1, le=250)) -> 
 
 @router.get("/api/hooks/deliveries/{delivery_id}")
 async def delivery(request: Request, delivery_id: str) -> dict:
-    rec = request.app.state.deps.hooks.get(delivery_id)
+    store = request.app.state.deps.hooks
+    rec = store.get(delivery_id)
     if rec is None:
         raise HTTPException(404, f"no delivery {delivery_id} (the last 200 authenticated and 50 rejected are kept)")
-    return rec
+    return store.public(rec)

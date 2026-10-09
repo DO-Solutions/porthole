@@ -11,7 +11,7 @@ import hmac
 import json
 import re
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from porthole.clock import iso, new_id, parse_iso
@@ -156,18 +156,37 @@ def excerpt(body: Any, limit: int = 200) -> str:
     return text if len(text) <= limit else text[:limit] + "..."
 
 
+REJECTED_NOTE = "rejected: the body and headers of unauthenticated deliveries are not shown"
+PUBLIC_REJECTED_KEYS = ("id", "received_at", "size", "content_type", "auth", "elapsed_ms", "matched_voyage")
+
+
 class DeliveryStore:
-    def __init__(self, hub: Any, now: Callable[[], Any], size_auth: int = 200, size_unauth: int = 50):
+    def __init__(self, hub: Any, now: Callable[[], Any], size_auth: int = 200, size_unauth: int = 50,
+                 secrets: Iterable[str] = ()):
         self.hub, self.now = hub, now
+        self.secrets = [s for s in secrets if s and len(s) >= 6]
         self.authenticated: deque[dict] = deque(maxlen=size_auth)
         self.rejected: deque[dict] = deque(maxlen=size_unauth)
 
+    def scrub(self, value: Any) -> Any:
+        """Configured secrets replaced with *** wherever they appear in a stored header or body: a channel whose
+        bearer was also put in a custom header, or a body that echoes a key, must not show it on the page."""
+        if isinstance(value, str):
+            for s in self.secrets:
+                value = value.replace(s, "***")
+            return value
+        if isinstance(value, dict):
+            return {k: self.scrub(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self.scrub(v) for v in value]
+        return value
+
     def record(self, *, headers: dict[str, str], raw: bytes, auth: dict, signature: dict, remote_ip: str,
                elapsed_ms: float | None = None) -> dict:
-        body = parse_body(raw)
+        body = self.scrub(parse_body(raw))
         rec = {"id": new_id("d"), "received_at": iso(self.now(), millis=True), "remote_ip": remote_ip,
                "size": len(raw), "content_type": headers.get("content-type"), "auth": auth,
-               "headers": redact_headers(headers), "signature": signature, "body": body,
+               "headers": self.scrub(redact_headers(headers)), "signature": signature, "body": body,
                "fields_found": fields_found(body), "matched_voyage": None, "excerpt": excerpt(body),
                "elapsed_ms": elapsed_ms}
         (self.authenticated if auth["ok"] else self.rejected).append(rec)
@@ -178,9 +197,24 @@ class DeliveryStore:
 
     @staticmethod
     def summary(rec: dict) -> dict:
+        """One row of the public list. A rejected delivery shows when, how big and why it was refused, never
+        what an unauthenticated caller wrote, so nobody can put text on the page by posting to the webhook."""
+        sig = {**rec["signature"], "verdict": verdict(rec["signature"]), "attempts": None}
+        if not rec["auth"]["ok"]:
+            return {**{k: rec[k] for k in PUBLIC_REJECTED_KEYS}, "excerpt": None, "fields_found": {},
+                    "signature": {"headers_seen": sig["headers_seen"], "verified": False, "matched": None,
+                                  "tried": 0, "attempts": None, "note": REJECTED_NOTE, "verdict": REJECTED_NOTE},
+                    "note": REJECTED_NOTE}
         keys = ("id", "received_at", "size", "auth", "excerpt", "matched_voyage", "fields_found")
-        return {k: rec[k] for k in keys} | {
-            "signature": {**rec["signature"], "verdict": verdict(rec["signature"]), "attempts": None}}
+        return {k: rec[k] for k in keys} | {"signature": sig}
+
+    @staticmethod
+    def public(rec: dict) -> dict:
+        """The full record of an authenticated delivery; the metadata only of a rejected one."""
+        if rec["auth"]["ok"]:
+            return rec
+        return {**{k: rec[k] for k in PUBLIC_REJECTED_KEYS}, "note": REJECTED_NOTE,
+                "signature": {"headers_seen": rec["signature"]["headers_seen"]}}
 
     def list(self, limit: int = 50) -> list[dict]:
         items = sorted(list(self.authenticated) + list(self.rejected), key=lambda r: r["received_at"], reverse=True)

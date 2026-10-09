@@ -112,6 +112,20 @@ def test_client_ip_rules():
     assert client_ip(_request({"X-Forwarded-For": "203.0.113.9, 10.1.1.1"}), True) == "203.0.113.9"
     assert client_ip(_request({"X-Forwarded-For": "203.0.113.9"}), False) == "192.0.2.50"
     assert client_ip(_request({}), True) == "192.0.2.50"
+    assert client_ip(_request({"X-Forwarded-For": "2001:db8::7, 10.1.1.1"}), True) == "2001:db8::7"
+    # found by the wringer (pass 4): a forged hop that is not an address was used as the rate-limit key as is
+    for forged in ("not an ip", "x" * 5000, "", " , 203.0.113.9", "203.0.113.9; rm -rf", "203.0.113"):
+        assert client_ip(_request({"X-Forwarded-For": forged}), True) == "192.0.2.50", forged
+
+
+async def test_webhook_flood_with_forged_addresses_is_capped_overall():
+    async with AppEnv(base_env(PORTHOLE_TRUST_PROXY="1")) as e:
+        codes = []
+        for i in range(601):  # a different forged address every time: the per-address limit never trips
+            h = {"Authorization": "Bearer nope", "X-Forwarded-For": f"198.51.{i // 250}.{i % 250 + 1}"}
+            codes.append((await e.client.post("/hooks/insights", content=b"{}", headers=h)).status_code)
+        assert codes[:600] == [401] * 600 and codes[600] == 429
+        assert len(e.deps.guard.limiters["hook"].buckets) <= 601
 
 
 def test_token_bucket_refills_over_time():

@@ -77,6 +77,37 @@ async def test_wrong_or_missing_auth_is_rejected_and_kept_apart(env):
     assert env.deps.hooks.find("2000-01-01T00:00:00Z") is None
 
 
+async def test_rejected_deliveries_show_metadata_only(env):
+    """Found by the wringer (pass 4): the public list and detail showed the body excerpt, the fields and the
+    headers of unauthenticated deliveries, so anyone could put 200 characters of text on the Alerts page."""
+    r = await post(env, {"Authorization": "Bearer nope", "User-Agent": "rude text", "X-Sign": "abc"},
+                   json.dumps({"rule_name": "<rude text>", "status": "ACTIVE"}).encode())
+    rid = r.json()["id"]
+    (row,) = (await env.client.get("/api/hooks/deliveries")).json()["deliveries"]
+    assert row["id"] == rid and row["auth"]["ok"] is False and row["excerpt"] is None and row["fields_found"] == {}
+    assert row["note"].startswith("rejected") and row["signature"]["headers_seen"] == ["x-sign"]
+    assert "rude" not in json.dumps(row)
+    detail = (await env.client.get(f"/api/hooks/deliveries/{rid}")).json()
+    assert set(detail) == {"id", "received_at", "size", "content_type", "auth", "elapsed_ms", "matched_voyage",
+                           "signature", "note"}
+    assert "rude" not in json.dumps(detail) and detail["signature"] == {"headers_seen": ["x-sign"]}
+    assert env.deps.hooks.get(rid)["body"] == {"rule_name": "<rude text>", "status": "ACTIVE"}  # kept for diagnosis
+    ok = (await post(env, AUTH)).json()["id"]
+    full = (await env.client.get(f"/api/hooks/deliveries/{ok}")).json()
+    assert full["body"]["type"] == "ALERT_TRIGGERED" and full["headers"]["authorization"] == "Bearer ***"
+
+
+async def test_configured_secrets_are_scrubbed_from_stored_deliveries(env):
+    """A channel configured with its bearer in a custom header too, or a body that echoes a key, must not show it."""
+    body = json.dumps({"echo": HOOK_BEARER, "nested": [HOOK_SECRET]}).encode()
+    r = await post(env, {**AUTH, "X-Hook-Token": HOOK_BEARER}, body)
+    rec = env.deps.hooks.get(r.json()["id"])
+    assert rec["headers"]["x-hook-token"] == "***" and rec["body"] == {"echo": "***", "nested": ["***"]}
+    text = (await env.client.get(f"/api/hooks/deliveries/{rec['id']}")).text
+    assert HOOK_BEARER not in text and HOOK_SECRET not in text and "***" in text
+    assert HOOK_BEARER not in (await env.client.get("/api/hooks/deliveries")).text
+
+
 async def test_basic_auth_and_no_auth():
     async with AppEnv(base_env(PORTHOLE_HOOK_BEARER=None, PORTHOLE_HOOK_BASIC="kraken:basic-pass-123")) as e:
         good = "Basic " + base64.b64encode(b"kraken:basic-pass-123").decode()

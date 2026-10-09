@@ -16,8 +16,10 @@ says how it protects both, and how to report a problem.
   sent as `X-Captain-Key` and compared in constant time. With no key configured those routes answer 503. The page
   keeps the key in `sessionStorage` for the tab, never in the URL or a cookie.
 - **Rate limits.** Mutating routes: 12 a minute per client address and 60 overall. Brain questions: 3 a minute per
-  address and 10 overall. The webhook: 60 a minute per address. Insights calls: 200 a minute overall (the API allows
-  250); past that, panels serve cached data marked stale. Over a limit the answer is 429 with `Retry-After`.
+  address and 10 overall. The webhook: 60 a minute per address and 600 overall. Insights calls: 200 a minute
+  overall (the API allows 250); past that, panels serve cached data marked stale. Over a limit the answer is 429
+  with `Retry-After`. Behind App Platform the client address is the first `X-Forwarded-For` hop; a hop that is
+  not an IP address is ignored. A caller can forge that hop, so the overall limits are the ones that hold.
 - **Caps apply on the server.** Every scenario parameter is clamped to the public caps (tighter than the tentacles'
   own limits) whatever the page sends. Visitors get builder-mode queries pinned to the fleet's region and resource
   names, which keeps discovery queries off the shared team account.
@@ -25,9 +27,11 @@ says how it protects both, and how to report a problem.
   Platform's basic tier has no fixed egress address. The key can only start bounded load on demo boxes. A TLS
   reverse proxy per tentacle is the upgrade path; it is not in this build.
 - **The webhook.** `POST /hooks/insights` only, 64 KiB at most, bearer or basic auth checked before a delivery
-  reaches any timeline. Rejected deliveries are kept apart and answered 401. The signature is checked against several
-  schemes and reported, never required, because Insights does not document its scheme. Authorization headers are
-  stored reduced to their scheme.
+  reaches any timeline. Rejected deliveries are kept apart and answered 401; the page shows only when they came,
+  how big they were and why they were refused, never their body or headers, so posting to the webhook puts no
+  text on the site. The signature is checked against several schemes and reported, never required, because
+  Insights does not document its scheme. Authorization headers are stored reduced to their scheme, and any
+  configured secret that appears in a header or body is replaced with `***`.
 - **The browser.** Every asset comes from the same origin, with `Content-Security-Policy: default-src 'self';
   img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and
   `Referrer-Policy: no-referrer`. No CORS headers, no inline scripts or styles, and data is inserted as text.

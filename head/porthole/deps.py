@@ -154,7 +154,7 @@ def build_services(deps: Deps) -> None:
     deps.on_start(lambda: deps.spawn(deps.poller.run(), "fleet-poller"))
     deps.scenarios = ScenarioService(deps)
     deps.scenarios_caps = deps.scenarios.caps
-    deps.hooks = DeliveryStore(deps.hub, deps.clock.now)
+    deps.hooks = DeliveryStore(deps.hub, deps.clock.now, secrets=deps.settings.secret_values())
     deps.voyages = VoyageEngine(deps, CATALOG)
     deps.on_stop(deps.voyages.close)
     deps.on_stop(deps.scenarios.close)

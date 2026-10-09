@@ -77,11 +77,19 @@ async function showDelivery(id) {
   const box = clear($("#delivery-detail"));
   try {
     const d = await api(`/api/hooks/deliveries/${encodeURIComponent(id)}`);
+    const when = el("h3", {}, `${d.id} at ${fmtDateTime(d.received_at)}`);
+    if (!d.auth.ok) {  // a rejected delivery comes back as metadata only
+      box.append(el("div", { class: "detail" }, when,
+        el("p", {}, `auth: ${d.auth.configured}, rejected (scheme seen: ${d.auth.scheme_seen || "none"}); ${d.size} bytes, `
+          + `${d.content_type || "no content type"}; signature headers seen: ${(d.signature.headers_seen || []).join(", ") || "none"}`),
+        el("p", { class: "small dim" }, d.note)));
+      return;
+    }
     const headers = el("table", {}, el("tbody", {}, Object.entries(d.headers || {}).map(([k, v]) =>
       el("tr", {}, el("td", { class: "mono" }, k), el("td", { class: "mono" }, v)))));
-    box.append(el("div", { class: "detail" }, el("h3", {}, `${d.id} at ${fmtDateTime(d.received_at)}`),
-      el("p", {}, `auth: ${d.auth.configured}, ${d.auth.ok ? "accepted" : "rejected"}; signature: ${verdict(d.signature)}`),
-      el("h3", {}, "headers (Authorization reduced to its scheme)"), headers,
+    box.append(el("div", { class: "detail" }, when,
+      el("p", {}, `auth: ${d.auth.configured}, accepted; signature: ${verdict(d.signature)}`),
+      el("h3", {}, "headers (Authorization reduced to its scheme, configured secrets replaced)"), headers,
       el("h3", {}, "fields found"), jsonTree(d.fields_found || {}), el("h3", {}, "body"), jsonTree(d.body)));
   } catch (e) { box.append(el("p", { class: "empty" }, errorText(e))); }
 }
@@ -93,7 +101,7 @@ async function loadDeliveries() {
     const rows = list.deliveries.map((d) => el("tr", { class: "clickable", onclick: () => showDelivery(d.id) },
       el("td", { class: "nowrap" }, fmtDateTime(d.received_at)),
       el("td", {}, el("span", { class: `status ${d.auth.ok ? "good" : "failure"}` }, d.auth.ok ? "authenticated" : "rejected")),
-      el("td", {}, verdict(d.signature)), el("td", { class: "excerpt" }, d.excerpt || "")));
+      el("td", {}, verdict(d.signature)), el("td", { class: "excerpt" }, d.excerpt || d.note || "")));
     clear($("#deliveries")).append(table(["received", "auth", "signature", "body"], rows,
       "No deliveries yet. They arrive when a rule with the webhook channel fires."));
   } catch (e) { clear($("#deliveries")).append(el("p", { class: "empty" }, errorText(e))); }
