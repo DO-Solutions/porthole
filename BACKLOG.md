@@ -32,3 +32,8 @@ maintainers; the rest waits for a build that touches the same code. Bugs observe
 - **Chart payload bytes.** A 24 hour range with eight series is 278 KB of JSON (1,440 points a series, full
   timestamps, full floats). Rounding values to six significant digits would cut it by about a third at the cost of
   the table view's digits; the design's budget allows the current size, so it was left.
+
+- **Voyage state does not survive a deploy.** Observed 2026-10-09 04:32Z: a churn voyage started on the outgoing
+  instance vanished when the new deployment took over (in-memory state, design section 3.6). The burn it started on the
+  tentacle kept running until its own timeout. Options: persist voyage runs to the database the fleet already has, or
+  refuse to start a voyage while a deployment is in progress and say so on the page.
