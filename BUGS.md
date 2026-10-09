@@ -17,7 +17,7 @@ wontfix. Never write an observation nobody made.
 ```
 
 ## B-001  Insights tab URLs are not documented     (verified)
-- when: 2026-10-09 (build); URLs read 2026-10-09 ~00:20Z by Darian   where: head `porthole/deeplinks.py`, design Appendix A   finding: none
+- when: 2026-10-09 (build); URLs read 2026-10-09 ~00:20Z by the maintainer   where: head `porthole/deeplinks.py`, design Appendix A   finding: none
 - request we made / received: none; the docs give only the menu path DATA & LEARNING > Insights > tab
 - response: n/a
 - expected: a stable URL per tab (Metrics, Dashboards, Alerts, Logs, Traces), with region and range in the query

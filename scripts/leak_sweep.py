@@ -5,6 +5,7 @@ words dop_v1_ and whsec on purpose. Documentation ranges (RFC 5737), private and
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
 import subprocess
 import sys
@@ -16,7 +17,9 @@ PATTERNS = [
     ("webhook signing secret", re.compile(r"whsec_[A-Za-z0-9+/=]{16,}")),
     ("private key", re.compile(r"BEGIN [A-Z ]*PRIVATE KEY")),
     ("lab secret path", re.compile(r"secret/", re.I)),
-    ("lab name", re.compile(r"vault|cc-01", re.I)),
+    # Extra private names to sweep for come from the environment (comma separated), so the public
+    # repo never has to list them: LEAK_SWEEP_NAMES="host-a,host-b" python3 scripts/leak_sweep.py
+    *[("private name", re.compile(re.escape(n.strip()), re.I)) for n in os.environ.get("LEAK_SWEEP_NAMES", "").split(",") if n.strip()],
     ("cloud access key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("Slack webhook", re.compile(r"hooks\.slack\.com/services/T[0-9A-Z]{6,}/B[0-9A-Z]{6,}/[0-9A-Za-z]{16,}")),
 ]
