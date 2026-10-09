@@ -1,6 +1,6 @@
 {
   "dashboard": "krakens-eye",
-  "description": "Every chart of the Kraken's Eye dashboard with its query, so the Dashboards page can run each one in Porthole. $tentacle is the dashboard variable (the tentacle URNs in the region shown) and $load_balancer_urn, $database_urn and $head_urn are URNs from the fleet description. Fleet members are selected by resource_urn because fresh Droplets report no resource_name (B-023); the Function namespace has no URN in the fleet description and stays selected by name. No query matches on resource_region_slug: the region is the one picked in the region list, and some series do not carry that label (B-026).",
+  "description": "Every chart of the Kraken's Eye dashboard with its query, so the Dashboards page can run each one in Porthole. $tentacle is the dashboard variable (the tentacle URNs in the region shown) and $load_balancer_urn, $database_urn, $functions_urn and $head_urn are URNs from the fleet description. Fleet members are selected by resource_urn because fresh Droplets report no resource_name (B-023); the Function namespace's series carry resource_urn and no other label (B-033). No query matches on resource_region_slug: the region is the one picked in the region list, and some series do not carry that label (B-026).",
   "variables": [
     {"name": "tentacle", "type": "list", "from": "label values of resource_urn on do.droplets.cpu_utilization",
      "regex": "do:droplet:.*", "default": "all", "multi": true},
@@ -26,8 +26,8 @@
      "promql": "sum by (resource_urn) (do.load_balancers.requests_per_second{resource_urn=\"$load_balancer_urn\"})"},
     {"title": "Database connections", "type": "time series", "group": "The sea", "legend": "{{resource_urn}}",
      "promql": "max by (resource_urn) (do.databases.pg_connections{resource_urn=\"$database_urn\"})"},
-    {"title": "Function invocations", "type": "bar", "group": "The sea", "legend": "{{resource_name}}",
-     "promql": "sum by (resource_name) (do.serverless.invocations{resource_name=\"kraken\"})"},
+    {"title": "Function activations", "type": "bar", "group": "The sea", "legend": "{{resource_urn}}",
+     "promql": "sum by (resource_urn) (do.functions.activations{resource_urn=\"$functions_urn\"})"},
     {"title": "Head requests", "type": "time series", "group": "The sea", "legend": "porthole",
      "promql": "sum by (resource_urn) (do.apps.app_requests_per_second{resource_urn=\"$head_urn\"})"},
     {"title": "Tentacle errors", "type": "log table", "group": "Logs and notes", "legend": "",

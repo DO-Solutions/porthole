@@ -231,8 +231,12 @@ def _sea(kind: str, v: Any) -> SeaSpec:
         extra["url"] = _url(str(extra["url"]), f"{where}.url", ("https", "http"))
     if kind == "spaces":
         extra.setdefault("bucket", v.get("name"))
+    urn = v.get("urn") or None
+    if kind == "functions" and not urn and extra.get("namespace_id"):
+        # descriptions written before B-033 have no urn; Insights labels the namespace's series with this one
+        urn = f"do:functions_namespace:{extra['namespace_id']}"
     return SeaSpec(kind=kind, name=_req(v, "name", where), region=v.get("region"), id=v.get("id"),
-                   urn=v.get("urn") or None, slot=_slot(v.get("slot"), where, DEFAULT_SLOTS.get(kind)), extra=extra)
+                   urn=urn, slot=_slot(v.get("slot"), where, DEFAULT_SLOTS.get(kind)), extra=extra)
 
 
 def _watcher(w: Any) -> WatcherSpec:

@@ -22,6 +22,7 @@ ENV_FILE = "porthole.env"
 REGIONS = ["tor1", "syd1"]
 SEA = (("lb", "load_balancer", 4), ("database", "database", 6), ("doks", "kubernetes", 7))
 URN_PATTERNS = {"lb": "do:loadbalancer:{}", "database": "do:dbaas:{}", "doks": "do:kubernetes:{}"}
+FUNCTIONS_URN = "do:functions_namespace:{}"  # the only label on every do_functions_* series in tor1 (B-033)
 
 
 def usable(entry: dict | None) -> bool:
@@ -71,7 +72,8 @@ def _sea(state: State) -> dict:
             sea[kind]["engine"] = entry["engine"]
     fn = state.get("functions")
     if usable(fn):
-        sea["functions"] = {"name": fn["name"], "namespace_id": fn["id"], "region": fn.get("region"), "slot": 8,
+        sea["functions"] = {"name": fn["name"], "namespace_id": fn["id"], "region": fn.get("region"),
+                            "urn": fn.get("urn") or FUNCTIONS_URN.format(fn["id"]), "slot": 8,
                             **({"url": fn["url"]} if fn.get("url") else {})}
     bucket = state.get("spaces_bucket")
     if usable(bucket):

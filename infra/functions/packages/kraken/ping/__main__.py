@@ -1,7 +1,7 @@
 """The kraken/ping Function: answers every call with a small JSON body and the time it ran.
 
 The tentacles call it as one hop of a request chain and the head calls it for the fn scenario, so its
-invocations show up in the do.serverless metrics."""
+activations show up in the do.functions metrics."""
 from __future__ import annotations
 
 from datetime import datetime, timezone

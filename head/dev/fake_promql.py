@@ -16,8 +16,15 @@ LAG_S = 60.0  # ingestion plus one-minute resolution
 # Labels differ per metric (finding A22): the Droplet CPU series carries only these, with no resource_region_slug,
 # no resource_name and no host_id, while the Droplet's other series do carry resource_region_slug. A query that pins
 # the region by label finds no CPU series (B-026).
-ONLY_LABELS = {"do_droplets_cpu_utilization": ("__name__", "do_tags", "resource_urn", "service_name")}
+ONLY_LABELS = {"do_droplets_cpu_utilization": ("__name__", "do_tags", "resource_urn", "service_name"),
+               # B-033, tor1 2026-10-09: the load balancer's connection series carry these three, and every
+               # do_functions_* series carries resource_urn and nothing else
+               "do_load_balancers_connections_active": ("__name__", "do_tags", "resource_urn", "service_name"),
+               "do_functions_activations": ("__name__", "resource_urn"),
+               "do_functions_avg_duration": ("__name__", "resource_urn"),
+               "do_functions_errors_total": ("__name__", "resource_urn")}
 DROPLET_TAGS = '["insights-demo","kraken-tentacle"]'  # finding A23 (the real label also lists two project ids)
+LB_TAGS = '["insights-demo"]'  # the label set is observed (B-033); this value is a stand-in
 
 # underscored name -> (unit, label variants). Names marked in watcher/probe_metrics.json as unverified are synthetic.
 FAMILIES: dict[str, dict[str, tuple[str, tuple[dict, ...]]]] = {
@@ -44,8 +51,8 @@ FAMILIES: dict[str, dict[str, tuple[str, tuple[dict, ...]]]] = {
     },
     "load_balancer": {
         "do_load_balancers_requests_per_second": ("per_second", ({},)),
-        "do_load_balancers_connections_current": ("plain", ({},)),
-        "do_load_balancers_http_responses_5xx": ("plain", ({},)),
+        "do_load_balancers_connections_active": ("plain", ({},)),
+        "do_load_balancers_http_error_count_5xx": ("plain", ({},)),
     },
     "database": {
         "do_databases_cpu_utilization": ("percent", ({},)), "do_databases_memory_utilization": ("percent", ({},)),
@@ -55,7 +62,8 @@ FAMILIES: dict[str, dict[str, tuple[str, tuple[dict, ...]]]] = {
         "do_kubernetes_node_cpu_utilization": ("percent", ({},)),
         "do_kubernetes_node_memory_utilization": ("percent", ({},)),
     },
-    "functions": {"do_serverless_invocations": ("plain", ({},)), "do_serverless_duration_ms": ("ms", ({},))},
+    "functions": {"do_functions_activations": ("plain", ({},)), "do_functions_avg_duration": ("ms", ({},)),
+                  "do_functions_errors_total": ("plain", ({},))},
     "spaces": {"do_spaces_requests": ("plain", ({"spaces_operation": "GET"}, {"spaces_operation": "PUT"}))},
     "registry": {"do_container_registry_storage_used_bytes": ("bytes", ({},))},
 }
@@ -118,6 +126,8 @@ class SeriesModel:
                         labels["host_id"] = str(e.ids["id"])
                     if e.kind == "tentacle":
                         labels |= {"do_tags": DROPLET_TAGS, "service_name": e.service_name or e.name}
+                    if e.kind == "load_balancer":
+                        labels |= {"do_tags": LB_TAGS, "service_name": e.name}
                     if metric in ONLY_LABELS:
                         labels = {k: v for k, v in labels.items() if k in ONLY_LABELS[metric]}
                     out.append(Series(labels, e, metric))
@@ -197,12 +207,14 @@ class SeriesModel:
             return 1.0
         if m == "do_load_balancers_requests_per_second":
             return round(0.05 * n + self._load(t, "lb") / 60, 3)
-        if m == "do_load_balancers_connections_current":
-            return round(1 + 2 * n + self._load(t, "lb") / 120, 3)
-        if m == "do_serverless_invocations":
+        if m == "do_load_balancers_connections_active":
+            return float(round(self._load(t, "lb") / 400))  # 0 at rest, 3 under 20 rps (B-033)
+        if m == "do_functions_activations":
             return float(self._load(t, "fn"))
-        if m == "do_serverless_duration_ms":
+        if m == "do_functions_avg_duration":
             return round(12 + 6 * n, 2)
+        if m == "do_functions_errors_total":
+            return 0.0
         if m == "do_databases_pg_connections":
             return float(3 + sum(r["params"].get("clients", 0) for r in self._active(e, "pg", t)))
         return round(10 + 5 * n + 3 * w, 3)

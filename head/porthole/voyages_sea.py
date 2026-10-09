@@ -82,6 +82,11 @@ async def chain(ctx: Any) -> dict:
             "head_trace_id": ctx.run.trace_id}
 
 
+# 4 clients for 60 s left a 1 vCPU managed Postgres between 15 and 20 % CPU (v-aba9cd); the load has to outlast the
+# one-minute series and Insights' lag inside the five-minute watch. 8 clients is the head's cap for pg.
+PG_SECONDS, PG_CLIENTS = 180, 8
+
+
 async def deep_water(ctx: Any) -> dict:
     sea = ctx.fleet.sea
     plan = [("start-pg", "pg", "database"), ("start-fn", "fn", "functions"), ("start-lb", "lb", "load_balancer")]
@@ -93,7 +98,7 @@ async def deep_water(ctx: Any) -> dict:
                     kind == "load_balancer" and not spec.extra.get("ip")):
                 s.skip(f"no {kind.replace('_', ' ')} in the fleet description")
             target = tentacle(ctx, None).name if scenario == "pg" else "head"
-            params = {"pg": {"seconds": 60, "clients": 4}, "fn": {"seconds": 60, "rps": 5},
+            params = {"pg": {"seconds": PG_SECONDS, "clients": PG_CLIENTS}, "fn": {"seconds": 60, "rps": 5},
                       "lb": {"seconds": 60, "rps": 20}}[scenario]
             run = await ctx.start(target, scenario, params)
             watched.append((kind, spec))
@@ -125,9 +130,11 @@ async def deep_water(ctx: Any) -> dict:
             return all(v is not None for v in moved.values()) or (ctx.now() - begin).total_seconds() >= 300
 
         await ctx.wait_for(families, 30, lambda _: f"moved so far: {[k for k, v in moved.items() if v is not None]}")
-        s.data.update(baseline=baseline, present_after_s=present, moved_after_s=moved)
-        s.note(", ".join(f"{k}: " + ("no data" if present[k] is None else "moved after " + format(moved[k], ".0f")
-                                     + " s" if moved[k] is not None else "data but no change")
+        metrics = {kind: ctx.deps.panels.probe_metrics.get(kind) for kind in present}
+        s.data.update(baseline=baseline, present_after_s=present, moved_after_s=moved, metrics=metrics)
+        s.note(", ".join(f"{k} ({metrics[k] or 'no probe metric'}): "
+                         + ("no data" if present[k] is None else "moved after " + format(moved[k], ".0f")
+                            + " s" if moved[k] is not None else "data but no change")
                          for k in present))
     async with ctx.step("summary") as s:
         missing = [k for k, v in present.items() if v is None]

@@ -11,7 +11,7 @@
   ],
   "groups": [
     {"name": "Tentacles", "charts": ["Tentacle CPU", "CPU now", "Memory used", "Load, 1 minute", "Free disk", "Private network out"]},
-    {"name": "The sea", "charts": ["Load balancer requests", "Database connections", "Function invocations", "Head requests"]},
+    {"name": "The sea", "charts": ["Load balancer requests", "Database connections", "Function activations", "Head requests"]},
     {"name": "Logs and notes", "charts": ["Tentacle errors", "How to read this"]}
   ]
 }

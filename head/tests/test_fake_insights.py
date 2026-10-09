@@ -1,11 +1,12 @@
 """The fake Insights matches the facts pack: shapes, error texts, absent data key, enums, A1, A2, A3, A6b, A15."""
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 
 import httpx
 import pytest
-from conftest import FakeClock, fleet_text
+from conftest import REPO, FakeClock, fleet_text
 
 from fake_insights import FakeInsights
 from fake_tentacles import FakeFleet
@@ -101,6 +102,35 @@ def test_catalog_is_per_region(world):
     assert "do_apps_app_requests_per_second" in tor and "do_load_balancers_requests_per_second" in tor
     assert all(n.startswith("do_droplets_") for n in syd)
     assert world["ins"].label_values("__name__", region="ams3")["data"] == []
+
+
+def test_lb_and_function_series_carry_the_tor1_names_and_labels(world):
+    """B-033, deep-water v-aba9cd: tor1 has do_load_balancers_connections_active and do_functions_activations, not
+    connections_current or do_serverless_*. The LB connection series carry do_tags, resource_urn and service_name;
+    every do_functions_* series carries resource_urn alone."""
+    tor = world["ins"].label_values("__name__", region="tor1")["data"]
+    assert {"do_load_balancers_connections_active", "do_functions_activations"} <= set(tor)
+    assert "do_load_balancers_connections_current" not in tor and not [n for n in tor if "serverless" in n]
+    lb = world["ins"].query("do.load_balancers.connections_active", region="tor1")["data"]["result"]
+    assert [set(s["metric"]) for s in lb] == [{"__name__", "do_tags", "resource_urn", "service_name"}]
+    assert lb[0]["metric"]["resource_urn"] == "do:loadbalancer:00000000-0000-0000-0000-000000000001"
+    for name in ("activations", "avg_duration", "errors_total"):
+        fn = world["ins"].query(f"do.functions.{name}", region="tor1")["data"]["result"]
+        assert [s["metric"] for s in fn] == [{"__name__": f"do_functions_{name}", "resource_urn":
+                                              "do:functions_namespace:fn-00000000-0000-0000-0000-000000000004"}]
+
+
+def test_the_probe_file_names_metrics_that_exist(world):
+    """The family probes of watcher/probe_metrics.json find the load balancer and the namespace by URN; the names it
+    had before B-033 (do.load_balancers.connections_current, do.serverless.invocations) find nothing."""
+    families = json.loads((REPO / "watcher" / "probe_metrics.json").read_text())["families"]
+    for kind in ("load_balancer", "functions"):
+        urn = next(e.urn for e in world["fleet"].entities() if e.kind == kind)
+        body = world["ins"].query(f"count by (resource_urn) ({families[kind]['metric']})", region="tor1")
+        assert [s["metric"] for s in body["data"]["result"]] == [{"resource_urn": urn}], kind
+        assert families[kind]["verified"] is True
+    for old in ("do.load_balancers.connections_current", "do.serverless.invocations"):
+        assert world["ins"].query(f"count({old})", region="tor1")["data"]["result"] == []
 
 
 def test_mkc1_serves_the_maintenance_page_and_mem1_is_empty(world):  # finding A3

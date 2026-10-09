@@ -22,7 +22,7 @@ def test_aggregations(agg):
 def test_the_region_is_never_a_label_matcher():
     """The region is the path segment of the call; do.droplets.cpu_utilization has no resource_region_slug (B-026)."""
     for region in ("tor1", "syd1"):
-        for metric in (CPU, "do.apps.app_requests_per_second", "do.serverless.invocations"):
+        for metric in (CPU, "do.apps.app_requests_per_second", "do.functions.activations"):
             assert "region" not in promql.build(metric, "avg", {}, region, FLEET)
             assert "region" not in promql.selector(metric, {}, region, FLEET)
 
@@ -59,14 +59,23 @@ def test_the_pin_follows_the_metric_family():
 
 
 def test_members_without_a_urn_stay_selected_by_name():
-    """The Function namespace has no URN in the fleet description, so its queries select and group by name."""
-    fn = promql.build("do.serverless.invocations", "sum", {}, "tor1", FLEET)
-    assert fn == 'sum by (resource_name) (do.serverless.invocations{resource_name=~"kraken"})'
-    assert promql.build("do.serverless.invocations", "sum", promql.parse_filters("resource_name=kraken"), "tor1",
-                        FLEET) == fn.replace('=~"kraken"', '="kraken"')
+    """The Spaces bucket has no URN in the fleet description, so its queries select and group by name."""
+    sp = promql.build("do.spaces.requests", "sum", {}, "tor1", FLEET)
+    assert sp == 'sum by (resource_name) (do.spaces.requests{resource_name=~"kraken-a1b2c3"})'
+    assert promql.build("do.spaces.requests", "sum", promql.parse_filters("resource_name=kraken-a1b2c3"), "tor1",
+                        FLEET) == sp.replace('=~"kraken-a1b2c3"', '="kraken-a1b2c3"')
     with pytest.raises(BuilderError, match="have no URN in the fleet description"):
-        promql.build(CPU, "avg", promql.parse_filters("resource_name=kraken,resource_name=kraken-tentacle-1"), "tor1",
-                     FLEET)
+        promql.build(CPU, "avg", promql.parse_filters("resource_name=kraken-a1b2c3,resource_name=kraken-tentacle-1"),
+                     "tor1", FLEET)
+
+
+def test_the_function_namespace_is_selected_by_urn():
+    """Every do_functions_* series carries resource_urn and nothing else (B-033)."""
+    fn = promql.build("do.functions.activations", "sum", {}, "tor1", FLEET)
+    assert fn == ('sum by (resource_urn) (do.functions.activations{'
+                  'resource_urn=~"do:functions_namespace:fn-00000000-0000-0000-0000-000000000004"})')
+    assert promql.build("do.functions.activations", "sum", promql.parse_filters("resource_name=kraken"), "tor1",
+                        FLEET) == fn.replace("=~", "=")
 
 
 def test_enum_labels_keep_the_pin():

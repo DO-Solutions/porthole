@@ -9,13 +9,13 @@ Dashboards have no API, so the dashboard lives here as files.
 - `krakens-eye.queries.json` is the sidecar the Dashboards page reads: `variables` (name, type, where the values
   come from, default) and `charts`, each with `title`, `type`, `group`, `legend`, `promql` and optional
   `thresholds`. In `promql`, `$tentacle` is the dashboard variable; Porthole substitutes the tentacle URNs of the
-  region shown when it runs a chart's query, and `$load_balancer_urn`, `$database_urn` and `$head_urn` with the URNs
-  from the fleet description (paste them in when building the dashboard by hand). No query matches on
+  region shown when it runs a chart's query, and `$load_balancer_urn`, `$database_urn`, `$functions_urn` and
+  `$head_urn` with the URNs from the fleet description (paste them in when building the dashboard by hand). No query matches on
   `resource_region_slug`: the region comes from the region list (Porthole's region selector, or the dashboard's own
   in the control panel), and some series do not carry that label (BUGS.md B-026).
-  Charts select fleet members by `resource_urn` because fresh Droplets report no `resource_name` (BUGS.md B-023); the
-  Function chart keeps `resource_name="kraken"` because the namespace has no URN in the fleet description. Charts
-  without a query (the log table and the markdown note) are listed but not run.
+  Charts select fleet members by `resource_urn` because fresh Droplets report no `resource_name` (BUGS.md B-023);
+  the Function namespace's series carry `resource_urn` and nothing else (BUGS.md B-033). Charts without a query (the
+  log table and the markdown note) are listed but not run.
 
 The brief describes the sidecar as a list of charts; it is an object with `variables` and `charts` so the variables
 and thresholds the page lists live in the same file.

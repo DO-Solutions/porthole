@@ -31,11 +31,11 @@ ENUM_LABELS: dict[str, frozenset[str]] = {
     "spaces_operation": frozenset({"GET", "PUT", "DELETE", "HEAD", "LIST"}),
 }
 FAMILIES = ("droplets", "load_balancers", "databases", "kubernetes", "apps", "container_registry", "spaces",
-            "serverless", "nat_gateways", "nfs", "vector_databases", "volumes", "gpu_droplets")
+            "functions", "serverless", "nat_gateways", "nfs", "vector_databases", "volumes", "gpu_droplets")
 DURATION = re.compile(r"^(\d+)([smhd]?)$")
 FAMILY_KIND = {"droplets": "tentacle", "apps": "app", "load_balancers": "load_balancer", "databases": "database",
-               "kubernetes": "kubernetes", "serverless": "functions", "spaces": "spaces",
-               "container_registry": "registry"}
+               "kubernetes": "kubernetes", "functions": "functions", "spaces": "spaces",
+               "container_registry": "registry"}  # do.serverless is Serverless Inference, not Functions (B-033)
 
 
 class BuilderError(ValueError):

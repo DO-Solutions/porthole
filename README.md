@@ -127,6 +127,9 @@ variable; the next deploy picks it up.
    and `service_name`, while the same Droplet's other series also carry `resource_region_slug` (B-023, B-026).
    `GET .../prom/api/v1/series?match[]={resource_urn="do:droplet:<id>"}` with a `start` and `end` lists each
    series with its labels. Select by `resource_urn`; the region is the path segment of the call, not a label.
+7. A fleet dot or deep-water family reads "no data" all along: take probe names in `watcher/probe_metrics.json` from
+   the live catalog, `GET .../prom/api/v1/label/__name__/values` with a `start` and `end`
+   (`python harness/insights_harness.py prom values __name__ --region tor1`), not from the docs (B-033).
 
 Security posture and how to report a problem: [SECURITY.md](SECURITY.md).
 

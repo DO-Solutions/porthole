@@ -204,6 +204,28 @@ async def test_deep_water_skips_what_the_fleet_lacks():
         assert set(run.summary["moved_after_s"]) == {"functions", "load_balancer"}
 
 
+async def test_deep_water_loads_the_database_harder_and_names_each_metric():
+    """B-033, run v-aba9cd: 4 pg clients for 60 s did not move a 1 vCPU database, and the LB and Function probe names
+    did not exist. The fleet description here predates the functions urn, as the live app's does."""
+    fleet = json.loads(fleet_text())
+    del fleet["sea"]["functions"]["urn"]
+    async with AppEnv(base_env(PORTHOLE_FLEET_JSON=json.dumps(fleet))) as env:
+        run = await sail(env, "deep-water")
+        assert await env.run_until(lambda: run.status != "sailing")
+        assert run.status == "done", run.error
+        [pg] = [r for r in env.fleet.by_name("kraken-tentacle-1").runs.values() if r.name == "pg"]
+        assert pg.params["seconds"] == 180 and pg.params["clients"] == 8
+        assert all(v is not None for v in run.summary["moved_after_s"].values()), run.summary
+        watch = run.step("watch")
+        assert watch.data["metrics"] == {"database": "do.databases.cpu_utilization",
+                                         "functions": "do.functions.activations",
+                                         "load_balancer": "do.load_balancers.connections_active"}
+        for part in ("database (do.databases.cpu_utilization): moved after",
+                     "functions (do.functions.activations): moved after",
+                     "load_balancer (do.load_balancers.connections_active): moved after"):
+            assert part in watch.text
+
+
 async def test_chain_points_at_the_heads_own_span(env):
     run = await sail(env, "chain")
     assert await env.run_until(lambda: run.status != "sailing")

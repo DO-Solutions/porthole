@@ -292,7 +292,9 @@ async def test_probes_fall_back_to_family_metrics():
         snap = (await e.client.get("/api/fleet")).json()
         assert snap["probe_mode"] == "family"
         assert all(t["seen_in_insights"] for t in snap["tentacles"])
-        assert snap["sea"]["functions"]["seen_in_insights"] is True  # matched by name in family mode
+        # the probe names of watcher/probe_metrics.json for these two are the ones the tor1 catalog has (B-033)
+        assert snap["sea"]["functions"]["seen_in_insights"] is True
+        assert snap["sea"]["load_balancer"]["seen_in_insights"] is True
         assert any("per-family probe metrics" in line["body"] for line in e.log_lines())
 
 
@@ -304,7 +306,8 @@ async def test_fleet_snapshot_shape(env):
     t3 = snap["tentacles"][2]  # not redeployed since mem_avail_mb: the fields are there, empty
     assert t3["health"]["mem_avail_mb"] is None and t3["health"]["mem_total_mb"] is None and t3["health"]["mem_pct"]
     assert snap["head"]["seen_in_insights"] is True and snap["probe_mode"] == "selector"
-    assert snap["sea"]["functions"]["seen_in_insights"] is None  # no URN to match in selector mode
+    assert snap["sea"]["functions"]["seen_in_insights"] is True  # by do:functions_namespace:<id> (B-033)
+    assert snap["sea"]["load_balancer"]["seen_in_insights"] is True
     env.fleet.by_name("kraken-tentacle-2").unreachable = True
     await env.advance(11)
     snap = (await env.client.get("/api/fleet")).json()
@@ -382,8 +385,15 @@ def test_normalize_the_sample_matrix():
     stray = {"resource_name": "kraken-tentacle-1", "resource_urn": "do:droplet:1"}
     fn = {"resource_name": "kraken", "resource_urn": "do:functions:kraken"}
     body = {"data": {"result": [{"metric": stray, "value": [1, "1"]}, {"metric": fn, "value": [1, "1"]}]}}
-    assert [(s["entity"], s["slot"]) for s in normalize(body, "tor1", fleet)] == [("kraken-tentacle-1", None),
-                                                                                  ("kraken", 8)]
+    unnamed = json.loads(fleet_text())
+    for key in ("urn", "namespace_id"):
+        del unnamed["sea"]["functions"][key]
+    assert [(s["entity"], s["slot"]) for s in normalize(body, "tor1", Fleet.from_dict(unnamed))] == [
+        ("kraken-tentacle-1", None), ("kraken", 8)]
+    assert [s["slot"] for s in normalize(body, "tor1", fleet)] == [None, None]  # the namespace has a URN now
+    real = {"resource_urn": "do:functions_namespace:fn-00000000-0000-0000-0000-000000000004"}  # B-033
+    assert [(s["entity"], s["slot"]) for s in normalize({"data": {"result": [{"metric": real, "value": [1, "1"]}]}},
+                                                        "tor1", fleet)] == [("kraken", 8)]
     families = group_families(fixture("label_values.json")["data"])
     assert list(families) == ["do.apps", "do.container_registry", "do.droplets", "do.load_balancers"]
     assert families["do.container_registry"][0]["dotted"] == "do.container_registry.storage_used_bytes"

@@ -80,6 +80,20 @@ def test_default_slots_and_display_names():
     assert fleet.sea["load_balancer"].slot == 4
 
 
+def test_a_functions_entry_without_urn_gets_one_from_its_namespace_id():
+    """B-033: the live app's description predates the functions urn; Insights labels the namespace's series
+    do:functions_namespace:<namespace id>, so the head completes it."""
+    d = fleet_dict()
+    del d["sea"]["functions"]["urn"]
+    fn = Fleet.from_dict(d).sea["functions"]
+    assert fn.urn == "do:functions_namespace:fn-00000000-0000-0000-0000-000000000004"
+    assert Fleet.from_dict(d).by_urn(fn.urn).name == "kraken"
+    d["sea"]["functions"]["urn"] = "do:functions_namespace:fn-given"
+    assert Fleet.from_dict(d).sea["functions"].urn == "do:functions_namespace:fn-given"  # a given urn is kept
+    del d["sea"]["functions"]["urn"], d["sea"]["functions"]["namespace_id"]
+    assert Fleet.from_dict(d).sea["functions"].urn is None
+
+
 @pytest.mark.parametrize("mutate,message", [
     (lambda d: d["tentacles"][1].update(region="nyc9"), "tentacles[1].region 'nyc9' is not one of regions"),
     (lambda d: d["tentacles"][0].update(url="ftp://192.0.2.1"), "tentacles[0].url must be an http or https URL"),

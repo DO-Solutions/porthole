@@ -20,7 +20,7 @@
                    "urn": "do:kubernetes:00000000-0000-0000-0000-000000000003", "slot": 7},
     "functions": {"name": "kraken", "namespace_id": "fn-00000000-0000-0000-0000-000000000004",
                   "url": "https://faas-tor1-00000000.doserverless.co/api/v1/web/fn-00000000-0000-0000-0000-000000000004/kraken/ping",
-                  "region": "tor1", "slot": 8},
+                  "region": "tor1", "urn": "do:functions_namespace:fn-00000000-0000-0000-0000-000000000004", "slot": 8},
     "spaces": {"name": "kraken-a1b2c3", "region": "tor1"},
     "registry": {"name": "kraken", "created": false},
     "agent": {"kind": "harness-runtime", "name": "kraken-brain", "region": "tor1"}

@@ -8,7 +8,7 @@ import {
 const cfg = await frame();
 const MAX_CHARTS = 6;
 const FAMILY_KIND = { "do.droplets": "tentacle", "do.apps": "app", "do.load_balancers": "load_balancer",
-  "do.databases": "database", "do.kubernetes": "kubernetes", "do.serverless": "functions", "do.spaces": "spaces",
+  "do.databases": "database", "do.kubernetes": "kubernetes", "do.functions": "functions", "do.spaces": "spaces",
   "do.container_registry": "registry" };
 const cards = [];
 let timer = null;

@@ -247,6 +247,9 @@ def test_the_fleet_json_has_the_shape_the_head_reads(provisioned, out_dir: Path)
     assert [r["purpose"] for r in fleet["watcher"]["rules"]] == PURPOSES
     state = resources(out_dir)
     t1, _, t3 = fleet["tentacles"]
+    fn = fleet["sea"]["functions"]  # the label on every do_functions_* series (B-033)
+    assert fn["namespace_id"] == state["functions"]["id"]
+    assert fn["urn"] == f"do:functions_namespace:{fn['namespace_id']}"
     assert t1["url"] == f"http://{state['reserved_ip:kraken-tentacle-1']['id']}:8800"
     assert t3["url"] == f"http://{state['droplet:kraken-tentacle-3']['ip']}:8800" and t3["peer"] is None
     app = next(iter(provisioned.items["apps"].values()))
