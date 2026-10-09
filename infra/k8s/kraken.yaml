@@ -1,0 +1,55 @@
+# A tiny workload for kraken-doks, so the cluster has a pod and a service for Insights to report on.
+# infra/steps/doks.py applies it with kubectl when kubectl is on PATH; otherwise it prints the command.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kraken-echo
+  namespace: default
+  labels:
+    app: kraken-echo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kraken-echo
+  template:
+    metadata:
+      labels:
+        app: kraken-echo
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+      containers:
+        - name: echo
+          image: nginxinc/nginx-unprivileged:1.27-alpine
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kraken-echo
+  namespace: default
+  labels:
+    app: kraken-echo
+spec:
+  selector:
+    app: kraken-echo
+  ports:
+    - port: 80
+      targetPort: 8080

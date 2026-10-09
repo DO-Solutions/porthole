@@ -75,7 +75,7 @@ wontfix. Never write an observation nobody made.
 - request we made / received: none; `doctl harness-runtime` shows create, prompt, logs, cancel and approve exist
 - response: n/a
 - expected: public REST shapes for creating a session, sending a prompt and reading its events, and an environment schema
-- observed: not observed yet. Phase 2 is a placeholder that raises NotConfigured; `env.yaml` field names are a plan
+- observed: Phase 2 is a placeholder that raises NotConfigured; `env.yaml` field names are a plan. On the build box (2026-10-09), doctl 1.166.0 answers `unknown command "harness-runtime"`, so `infra/steps/agent.py` checks the help text and records the session as pending; its size slug and flags are unverified
 - reproduce: read the API reference for `/v2/agents/*` once it is published
 - status: to verify
 
@@ -149,4 +149,40 @@ wontfix. Never write an observation nobody made.
 - expected: records with `service.name` equal to `TENTACLE_NAME` (the Droplet name), as the tentacle sets on its OTel resource and log lines
 - observed: not observed yet. The expected-versus-observed counts search by that service name, so a different name would read as A6b
 - reproduce: run the Log storm voyage, then search the Logs tab for the Droplet's name in body or resource
+- status: to verify
+
+## B-016  Spaces keys API, Spaces in tor1, and bucket probing     (to verify)
+- when: 2026-10-09 (build)   where: `infra/steps/spaces.py`, `infra/teardown.py`   finding: none yet
+- request we made / received: none; no token on the build box
+- response: n/a
+- expected: `POST /v2/spaces/keys` with `{"name", "grants": [{"bucket": "", "permission": "fullaccess"}]}` returns `{"key": {"access_key", "secret_key", ...}}`; Spaces is offered in tor1; an unsigned `HEAD https://tor1.digitaloceanspaces.com/<bucket>` answers 404 for a missing bucket and 403 for one that exists
+- observed: not observed yet
+- reproduce: `python infra/provision.py --only spaces`, then `python infra/teardown.py` to list it; if the step fails, skip it (Spaces is optional for the demo)
+- status: to verify
+
+## B-017  Project resource URNs for clusters, apps and buckets     (to verify)
+- when: 2026-10-09 (build)   where: `infra/steps/common.py` `Context.assign`   finding: none yet
+- request we made / received: none yet
+- response: n/a
+- expected: `POST /v2/projects/<id>/resources` accepts `do:kubernetes:<id>`, `do:app:<id>` and `do:space:<bucket>` as well as the documented Droplet, load balancer, dbaas and reserved IP URNs
+- observed: not observed yet. A refused assignment prints a warning and the run goes on; project membership only changes how the control panel groups resources
+- reproduce: run `provision.py` and look for "could not assign" lines
+- status: to verify
+
+## B-018  The tentacle database user may lack CREATE on the public schema     (to verify)
+- when: 2026-10-09 (build)   where: `infra/steps/database.py`, tentacle `pg` scenario   finding: none yet
+- request we made / received: none yet
+- response: n/a
+- expected: the `pg` scenario's `CREATE TABLE IF NOT EXISTS tentacle_load` succeeds as user `tentacle` in database `kraken`
+- observed: not observed yet. Postgres 15 and later revoke CREATE on `public` from ordinary users, and the API creates databases owned by doadmin. If the scenario fails with "permission denied for schema public", run `GRANT CREATE ON SCHEMA public TO tentacle;` as doadmin in database `kraken`
+- reproduce: start the Deep water voyage, or `POST /scenario/pg` on tentacle-1, and read the run's error
+- status: to verify
+
+## B-019  Functions namespace in tor1 and the web function URL     (to verify)
+- when: 2026-10-09 (build)   where: `infra/steps/functions.py`   finding: none yet
+- request we made / received: none yet
+- response: n/a
+- expected: `POST /v2/functions/namespaces` with `{"region": "tor1", "label": "kraken"}` works, and the deployed function answers `{"pong": true}` at `<api_host>/api/v1/web/<namespace>/kraken/ping`
+- observed: not observed yet
+- reproduce: `python infra/provision.py --only functions`, then curl the `url` recorded in `infra/out/state.json`
 - status: to verify

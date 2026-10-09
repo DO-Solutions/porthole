@@ -1,0 +1,12 @@
+# doctl serverless project for the kraken Function (design section 9.2, step 9).
+# From the repo root:  doctl serverless connect <namespace id>  then  doctl serverless deploy infra/functions
+# As a web function it answers at <api host>/api/v1/web/<namespace id>/kraken/ping, which becomes FN_URL.
+packages:
+  - name: kraken
+    functions:
+      - name: ping
+        runtime: python:3.11
+        web: true
+        limits:
+          timeout: 3000
+          memory: 128

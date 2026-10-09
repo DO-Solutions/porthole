@@ -1,2 +1,4 @@
 # Provisioning runtime: the DigitalOcean API client is plain httpx.
 httpx==0.28.1
+# The app step reads .do/app.yaml.
+PyYAML==6.0.3
