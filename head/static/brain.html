@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Porthole: Brain</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/skin.css">
+  <link rel="stylesheet" href="/static/css/porthole.css">
+  <script type="module" src="/static/js/pages/brain.js"></script>
+</head>
+<body>
+  <header id="frame-top"></header>
+  <main>
+    <section class="card span-8" aria-labelledby="brain-title">
+      <h1 id="brain-title">The Kraken's Brain</h1>
+      <p class="explainer">The Kraken's Brain answers questions about the fleet using the same read-only Insights calls as the panels. Today it is a scripted deckhand: it recognises a tentacle name and a symptom, runs the checks, and explains what it found. Anything that would change the fleet shows up as an approval card and waits for the captain. The Managed Agents version plugs into the same panel.</p>
+      <div class="row">
+        <label class="field"><span class="label">your question</span><input id="question" type="text" maxlength="300" size="48"></label>
+        <button type="button" class="primary" id="ask">Ask</button>
+      </div>
+      <div class="suggestions" id="suggestions"></div>
+      <div class="events" id="events" aria-live="polite"></div>
+      <p class="small dim" id="answering"></p>
+    </section>
+    <section class="card span-4" aria-labelledby="tools-title">
+      <h2 id="tools-title">Tools</h2>
+      <p class="small dim">Read tools run at once and show up in the API drawer. Tools marked "asks first" wait for the captain.</p>
+      <ul id="tools"></ul>
+    </section>
+  </main>
+  <footer id="frame-drawer"></footer>
+</body>
+</html>

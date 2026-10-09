@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -224,3 +226,14 @@ async def test_config_palette_follows_the_slot_order(env):
 def test_static_readme_records_the_validator_run():
     text = (STATIC / "README.md").read_text()
     assert "## Palette validator" in text and "#081f1e" in text and "## Slot order" in text
+
+
+def test_all_nine_pages_exist():
+    assert len(PAGES) == 9 and built_pages() == list(PAGES.values())
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed here; CI runs these with Node 22")
+def test_charts_js_unit_tests():
+    r = subprocess.run(["node", "--test", str(HEAD / "tests" / "js" / "*.test.mjs")], capture_output=True, text=True,
+                       timeout=120, cwd=HEAD)
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]

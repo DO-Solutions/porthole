@@ -1,0 +1,48 @@
+# Local development (design section 8.4): the head, two real tentacles and the fake Insights.
+# cp head/.env.example head/.env && docker compose up --build, then open http://localhost:8080
+x-fleet: &fleet >-
+  {"project": "insights-demo-local", "regions": ["tor1", "syd1"],
+   "tentacles": [
+    {"name": "kraken-tentacle-a", "display": "tentacle-a", "region": "tor1", "url": "http://tentacle-a:8800",
+     "id": 600000101, "urn": "do:droplet:600000101", "peer": "kraken-tentacle-b", "slot": 1},
+    {"name": "kraken-tentacle-b", "display": "tentacle-b", "region": "syd1", "url": "http://tentacle-b:8801",
+     "id": 600000102, "urn": "do:droplet:600000102", "peer": "kraken-tentacle-a", "slot": 2}],
+   "head": {"app_id": "00000000-0000-0000-0000-000000000000", "region": "tor1", "service_name": "porthole"},
+   "watcher": {"rules": [{"id": "00000000-0000-0000-0000-0000000000a1", "purpose": "round-trip",
+     "name": "kraken churn", "target": "kraken-tentacle-a"}],
+     "channel_webhook_id": "00000000-0000-0000-0000-0000000000c1", "dashboard": "krakens-eye"}}
+
+services:
+  head:
+    build: {context: ., dockerfile: head/Dockerfile}
+    env_file: head/.env
+    environment:
+      PORTHOLE_TRUST_PROXY: "0"
+      PORTHOLE_FLEET_JSON: *fleet
+      PORTHOLE_INSIGHTS_BASE_URL: http://insights-fake:9000
+      PORTHOLE_PUBLIC_URL: http://localhost:8080
+    ports: ["8080:8080"]
+    depends_on: [insights-fake, tentacle-a, tentacle-b]
+
+  tentacle-a:
+    build: {context: ., dockerfile: tentacle/Dockerfile.dev}
+    environment: {TENTACLE_NAME: kraken-tentacle-a, TENTACLE_KEY: dev-key, TENTACLE_PORT: "8800",
+                  PEER_URL: "http://tentacle-b:8801"}
+    ports: ["8800:8800"]
+
+  tentacle-b:
+    build: {context: ., dockerfile: tentacle/Dockerfile.dev}
+    environment: {TENTACLE_NAME: kraken-tentacle-b, TENTACLE_KEY: dev-key, TENTACLE_PORT: "8801",
+                  PEER_URL: "http://tentacle-a:8800"}
+    ports: ["8801:8801"]
+
+  insights-fake:
+    build: {context: ., dockerfile: head/Dockerfile}
+    command: ["python", "/app/head/dev/fake_insights.py"]
+    env_file: head/.env
+    environment:
+      PORTHOLE_FLEET_JSON: *fleet
+      PORTHOLE_PUBLIC_URL: http://localhost:8080
+      FAKE_WATCH_TENTACLES: "1"
+      FAKE_HOOK_URL: http://head:8080/hooks/insights
+    ports: ["9000:9000"]

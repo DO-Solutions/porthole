@@ -53,6 +53,7 @@ async def post(env, headers, body=BODY):
 
 
 async def test_accepted_with_the_bearer_in_under_50_ms(env):
+    await post(env, AUTH)  # the app's first request pays one-off warm-up costs; measure a steady-state delivery
     t0 = time.perf_counter()
     r = await post(env, AUTH)
     elapsed = (time.perf_counter() - t0) * 1000
@@ -175,3 +176,14 @@ async def test_delivery_detail_route(env):
     d = (await env.client.get(f"/api/hooks/deliveries/{rid}")).json()
     assert d["signature"]["attempts"] and d["body"]["type"] == "ALERT_TRIGGERED"
     assert (await env.client.get("/api/hooks/deliveries/d-missing")).status_code == 404
+
+
+async def test_the_sample_delivery(env):
+    from conftest import fixture
+    body = json.dumps(fixture("delivery.json")).encode()
+    rec = env.deps.hooks.get((await post(env, AUTH, body)).json()["id"])
+    assert rec["fields_found"]["rule_id"] == "00000000-0000-0000-0000-0000000000a1"
+    assert rec["fields_found"]["status"] == "ALERT_INSTANCE_STATUS_ACTIVE"
+    assert rec["fields_found"]["resource_urn"] == "do:droplet:600000001"
+    found = env.deps.hooks.find("2026-10-12T00:00:00Z", rule_id="00000000-0000-0000-0000-0000000000a1")
+    assert found["id"] == rec["id"]

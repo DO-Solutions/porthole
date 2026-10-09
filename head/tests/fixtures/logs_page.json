@@ -1,0 +1,7 @@
+{"data": [
+  {"timestamp": "2026-10-12T14:01:02.123Z", "severity_number": 17, "severity_text": "ERROR",
+   "body": "payment provider timeout after 812 ms", "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+   "span_id": "00f067aa0ba902b7", "service_name": "kraken-tentacle-1",
+   "resource": {"do.component": "droplet", "do.droplet.id": "600000001"},
+   "attributes": {"scenario.name": "logs", "log.seq": "41"}}],
+ "pagination": {"has_more": true, "next_cursor": "eyJ0cyI6MTc2MDI3NzI2MjEyM30"}}

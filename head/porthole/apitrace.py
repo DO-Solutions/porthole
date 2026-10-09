@@ -25,7 +25,7 @@ from insights_harness import Insights, excerpt, redact
 from porthole.cache import Budget, BudgetExhausted
 from porthole.clock import iso, new_id
 
-_calls: ContextVar[list | None] = ContextVar("porthole_calls", default=None)
+_calls: ContextVar[tuple[list, ...]] = ContextVar("porthole_calls", default=())
 _caller: ContextVar[str] = ContextVar("porthole_caller", default="")
 REGION_IN_PATH = re.compile(r"^/v2/insights/query/([a-z0-9]+)/")
 HEAD_BYTES = 2048
@@ -33,9 +33,10 @@ HEAD_BYTES = 2048
 
 @contextmanager
 def collect_calls() -> Iterator[list[str]]:
-    """Collects the ids of the calls made inside the block, including calls made in worker threads."""
+    """Collects the ids of the calls made inside the block, including calls made in worker threads. Blocks nest:
+    a call made inside an inner block is also collected by every outer one."""
     calls: list[str] = []
-    token = _calls.set(calls)
+    token = _calls.set(_calls.get() + (calls,))
     try:
         yield calls
     finally:
@@ -129,8 +130,7 @@ class ApiTrace:
                        mono=self.monotonic())
         with self._lock:
             self.ring.append(call)
-        collected = _calls.get()
-        if collected is not None:
+        for collected in _calls.get():
             collected.append(call.id)
         if self.hub is not None:
             s = call.summary()

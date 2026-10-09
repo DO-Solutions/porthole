@@ -1,0 +1,8 @@
+# A local tentacle for docker compose: the delivered tentacle.py, unchanged, on a laptop (no PG, no Function).
+FROM python:3.12-slim
+WORKDIR /opt/tentacle
+COPY tentacle/requirements.txt tentacle/tentacle.py ./
+RUN pip install --no-cache-dir -r requirements.txt && useradd --system --uid 10002 tentacle
+ENV TENTACLE_LOG_FILE=/tmp/tentacle/tentacle.jsonl TENTACLE_DATA_DIR=/tmp/tentacle/data PYTHONUNBUFFERED=1
+USER tentacle
+CMD ["python", "tentacle.py"]

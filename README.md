@@ -42,7 +42,9 @@ make dev                                 # docker compose up --build
 ```
 
 Checks: `make test` (the four suites), `make lint` (ruff), `make smoke` (starts the local runner and fetches
-every page and route), `make leak-sweep` (secret shapes, lab names and public IPs outside the documentation ranges).
+every page and route), `make leak-sweep` (secret shapes, lab names and public IPs outside the documentation ranges),
+`make audit` (pip-audit). CI runs the same on every push. `make vendor` downloads uPlot only if its files are
+missing; they are committed with their hashes in `head/static/vendor/uplot/VENDOR.md`.
 
 ## Deploy
 
@@ -125,11 +127,13 @@ Security posture and how to report a problem: [SECURITY.md](SECURITY.md).
 ## Layout
 
 ```
-head/       the app (porthole/), static pages, dev fakes and runner, tests
+head/       the app (porthole/), static pages, dev fakes and runner, smoke.sh, tests
 harness/    Insights API library and CLI, carried over unchanged
-tentacle/   the scenario service for the Droplets, carried over unchanged
+tentacle/   the scenario service for the Droplets, carried over unchanged, plus Dockerfile.dev
 infra/      provisioning and teardown through the DigitalOcean API
-watcher/    alert rule templates, the dashboard file and its query list, probe metrics, the skin
+watcher/    alert rule templates, the dashboard file and its query list, probe metrics, the skin, the phase 2 Brain spec
+scripts/    the leak sweep and the uPlot vendoring used by make and CI
+.do/        the App Platform spec
 ```
 
 MIT licensed, see [LICENSE](LICENSE).

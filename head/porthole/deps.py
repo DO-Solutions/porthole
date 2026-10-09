@@ -122,6 +122,9 @@ class Deps:
 
 def build_services(deps: Deps) -> None:
     """Attach the services of later milestones. Imports are local so modules can import deps types freely."""
+    from porthole.brain.deckhand import Deckhand
+    from porthole.brain.harness_runtime import HarnessRuntimeBrain
+    from porthole.brain.tools import build_tools
     from porthole.deeplinks import DeepLinks
     from porthole.hooks import DeliveryStore
     from porthole.panels import Panels
@@ -145,3 +148,11 @@ def build_services(deps: Deps) -> None:
     deps.voyages = VoyageEngine(deps, CATALOG)
     deps.on_stop(deps.voyages.close)
     deps.on_stop(deps.scenarios.close)
+    deps.brain_tools = build_tools(deps)
+    deps.brain = None
+    if deps.settings.brain == "deckhand":
+        deps.brain = Deckhand(deps, deps.brain_tools)
+        deps.on_stop(deps.brain.close)
+    elif deps.settings.brain == "harness-runtime":
+        s = deps.settings
+        deps.brain = HarnessRuntimeBrain(session=s.brain_session, gateway_url=s.gateway_mcp_url, token=s.brain_token)

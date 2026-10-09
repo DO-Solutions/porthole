@@ -198,3 +198,40 @@ def test_metric_driven_alert_follows_a_cpu_run(world):
     assert not fake.store._active(rid)
     assert [d["kind"] for d in world["sent"]] == ["ALERT_TRIGGERED", "ALERT_RESOLVED"]
     assert clock.now() - world["clock"].start_wall == timedelta(seconds=550)
+
+
+def same_shape(sample, actual, path="$"):
+    """Every key of the sample exists in the fake's answer with a value of the same kind (None matches anything)."""
+    if sample is None or actual is None:
+        return
+    if isinstance(sample, dict):
+        assert isinstance(actual, dict), path
+        for k, v in sample.items():
+            if not k.startswith("_"):
+                assert k in actual, f"{path}.{k} missing"
+                same_shape(v, actual[k], f"{path}.{k}")
+    elif isinstance(sample, list):
+        assert isinstance(actual, list), path
+        if sample and actual:
+            same_shape(sample[0], actual[0], f"{path}[0]")
+    else:
+        kinds = (int, float) if isinstance(sample, (int, float)) and not isinstance(sample, bool) else type(sample)
+        assert isinstance(actual, kinds), f"{path}: {type(actual).__name__} is not {type(sample).__name__}"
+
+
+def test_the_fake_matches_the_sample_shapes(world):
+    from conftest import fixture
+    ins, now = world["ins"], world["clock"].now().timestamp()
+    same_shape(fixture("prom_matrix.json"), ins.query_range("do.droplets.cpu_utilization", now - 300, now, "60s",
+                                                            region="tor1"))
+    same_shape(fixture("label_values.json"), ins.label_values("__name__", region="tor1"))
+    same_shape(fixture("alert_rule.json"), ins.get_rule("00000000-0000-0000-0000-0000000000a1"))
+    same_shape(fixture("alert_instances.json"), ins.list_instances(rule_id="00000000-0000-0000-0000-0000000000a1"))
+    same_shape(fixture("channels.json"), ins.list_channels())
+    fake = FakeInsights(world["fleet"], world["tentacles"], world["clock"], droplet_logs=True)
+    logs = Insights("test-token-0000", transport=fake.transport(), base_url="http://fake")
+    world["tentacles"].by_name("kraken-tentacle-1").start("logs", {"seconds": "60", "rate": "10"}, world["clock"].now())
+    world["clock"].t += 90
+    page = logs.search_logs("now-1h", "now", cond("service.name", "=", "kraken-tentacle-1"),
+                            [order("timestamp", "desc")], limit=5, region="tor1")
+    same_shape(fixture("logs_page.json"), page)

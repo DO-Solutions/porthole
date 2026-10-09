@@ -245,3 +245,39 @@ async def test_token_never_leaks_after_every_panel(env):
               json.dumps(env.deps.telemetry.ring.traces())]
     for text in texts:
         assert TOKEN not in text and CAPTAIN not in text
+
+
+def test_normalize_the_sample_matrix():
+    from conftest import fixture, fleet_text
+
+    from porthole.config import Fleet
+    from porthole.panels import group_families, normalize
+    fleet = Fleet.from_json(fleet_text())
+    ours, theirs = normalize(fixture("prom_matrix.json"), "tor1", fleet)
+    assert (ours["entity"], ours["display"], ours["slot"], ours["region"]) == \
+        ("kraken-tentacle-1", "tentacle-1", 1, "tor1")
+    assert ours["points"] == [[1760277120, 2.1], [1760277180, 2.3], [1760277300, 61.4]]  # gap and NaN stay missing
+    assert theirs["slot"] is None and theirs["display"] == "someone-elses-droplet"
+    families = group_families(fixture("label_values.json")["data"])
+    assert list(families) == ["do.apps", "do.container_registry", "do.droplets", "do.load_balancers"]
+    assert families["do.container_registry"][0]["dotted"] == "do.container_registry.storage_used_bytes"
+
+
+def test_alert_views_from_the_samples():
+    from conftest import fixture, fleet_text
+
+    from porthole.config import Fleet
+    from porthole.panels_alerts import channel_view, instance_view, rule_view
+    fleet = Fleet.from_json(fleet_text())
+    rule = rule_view(fixture("alert_rule.json")["alert_rule"], fleet.rule("round-trip"))
+    assert (rule["operator"], rule["warning"], rule["critical"], rule["window"], rule["re_alert"], rule["status"]) == \
+        (">=", 40, 60, "1m", "30m", "active")
+    assert rule["channels"] == [{"id": "00000000-0000-0000-0000-0000000000c1", "notify_on": ["warning", "critical"]}]
+    inst = instance_view(fixture("alert_instances.json")["alert_instances"][0], {rule["id"]: rule}, fleet)
+    assert (inst["status"], inst["severity"], inst["entity"], inst["rule_name"]) == \
+        ("resolved", "critical", "tentacle-1", "kraken churn")
+    channels = fixture("channels.json")["notification_channels"]
+    hook, email = (channel_view(c, "https://porthole.example.test") for c in channels)
+    assert hook["type"] == "webhook" and hook["points_here"] and set(hook["statuses"]) == {"bearer_token_status",
+                                                                                         "signature_status"}
+    assert email["type"] == "email" and email["target"] == "alerts@example.com" and not email["points_here"]

@@ -19,6 +19,7 @@ MUTATING = [
     ("/api/insights/promql", {"region": "tor1", "query": "sum(do.droplets.load_1)"}),
     ("/api/insights/logs/search", {"region": "tor1"}),
     ("/api/insights/rules/00000000-0000-0000-0000-0000000000a1/status", {"status": "paused"}),
+    ("/api/brain/sessions/s-000000/approvals/a-000000", {"decision": "approve"}),
 ]
 
 

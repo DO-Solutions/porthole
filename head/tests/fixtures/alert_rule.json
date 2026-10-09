@@ -1,0 +1,9 @@
+{"alert_rule": {"id": "00000000-0000-0000-0000-0000000000a1", "owner_id": 1000001,
+  "status": "ALERT_RULE_STATUS_ACTIVE",
+  "spec": {"name": "kraken churn",
+           "query": {"metric": "do.droplets.cpu_utilization", "resource_urns": ["do:droplet:600000001"]},
+           "condition": {"window": "EVALUATION_WINDOW_1M"},
+           "thresholds": {"warning": 40, "critical": 60, "operator": "THRESHOLD_OPERATOR_GREATER_THAN_OR_EQUAL"},
+           "notification_channels": [{"notification_channel_id": "00000000-0000-0000-0000-0000000000c1",
+                                      "notify_on": ["SEVERITY_WARNING", "SEVERITY_CRITICAL"]}],
+           "re_alert_duration": "RE_ALERT_DURATION_30M"}}}

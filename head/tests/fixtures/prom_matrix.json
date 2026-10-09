@@ -1,0 +1,7 @@
+{"status": "success", "data": {"resultType": "matrix", "result": [
+  {"metric": {"__name__": "do_droplets_cpu_utilization", "resource_name": "kraken-tentacle-1",
+              "resource_urn": "do:droplet:600000001", "resource_region_slug": "tor1"},
+   "values": [[1760277120, "2.1"], [1760277180, "2.3"], [1760277300, "61.4"], [1760277360, "NaN"]]},
+  {"metric": {"__name__": "do_droplets_cpu_utilization", "resource_name": "someone-elses-droplet",
+              "resource_urn": "do:droplet:600000099", "resource_region_slug": "tor1"},
+   "values": [[1760277120, "5"]]}]}}

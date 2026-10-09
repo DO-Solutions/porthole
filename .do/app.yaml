@@ -1,0 +1,38 @@
+# App Platform spec for the head (design section 8.2). Used once to create the app; after that the spec stored in
+# the account is the source of truth and pushes to main redeploy with it. SECRET values are set in the control
+# panel or by infra/provision.py and are stored encrypted; they never appear in this file.
+name: porthole
+region: tor
+domains:
+  - domain: insights-demo.digitalocean.solutions
+    type: PRIMARY
+    zone: digitalocean.solutions
+services:
+  - name: head
+    github:
+      repo: DO-Solutions/porthole
+      branch: main
+      deploy_on_push: true
+    dockerfile_path: head/Dockerfile
+    source_dir: /
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    health_check:
+      http_path: /healthz
+      initial_delay_seconds: 5
+      period_seconds: 10
+      timeout_seconds: 3
+      failure_threshold: 3
+    envs:
+      - {key: DIGITALOCEAN_TOKEN, scope: RUN_TIME, type: SECRET}
+      - {key: PORTHOLE_CAPTAIN_KEY, scope: RUN_TIME, type: SECRET}
+      - {key: TENTACLE_KEY, scope: RUN_TIME, type: SECRET}
+      - {key: PORTHOLE_HOOK_BEARER, scope: RUN_TIME, type: SECRET}
+      - {key: PORTHOLE_HOOK_SECRET, scope: RUN_TIME, type: SECRET}
+      - {key: PORTHOLE_FLEET_JSON, scope: RUN_TIME, type: GENERAL, value: "{}"}
+      - {key: PORTHOLE_PUBLIC_URL, scope: RUN_TIME, value: "https://insights-demo.digitalocean.solutions"}
+      - {key: PORTHOLE_TRUST_PROXY, scope: RUN_TIME, value: "1"}
+alerts:
+  - rule: DEPLOYMENT_FAILED
+  - rule: DOMAIN_FAILED
