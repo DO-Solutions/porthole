@@ -16,10 +16,10 @@ PATTERNS = [
     ("DigitalOcean token", re.compile(r"do[por]_v1_[0-9a-f]{20,}")),
     ("webhook signing secret", re.compile(r"whsec_[A-Za-z0-9+/=]{16,}")),
     ("private key", re.compile(r"BEGIN [A-Z ]*PRIVATE KEY")),
-    ("lab secret path", re.compile(r"secret/", re.I)),
+    ("lab secret path", re.compile(r"secret/", re.IGNORECASE)),
     # Extra private names to sweep for come from the environment (comma separated), so the public
     # repo never has to list them: LEAK_SWEEP_NAMES="host-a,host-b" python3 scripts/leak_sweep.py
-    *[("private name", re.compile(re.escape(n.strip()), re.I)) for n in os.environ.get("LEAK_SWEEP_NAMES", "").split(",") if n.strip()],
+    *[("private name", re.compile(re.escape(n.strip()), re.IGNORECASE)) for n in os.environ.get("LEAK_SWEEP_NAMES", "").split(",") if n.strip()],
     ("cloud access key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("Slack webhook", re.compile(r"hooks\.slack\.com/services/T[0-9A-Z]{6,}/B[0-9A-Z]{6,}/[0-9A-Za-z]{16,}")),
 ]
