@@ -305,6 +305,68 @@ def test_pg_scenario_needs_dsn_and_reports_failure(env, tmp_path):
         assert any(l["severity_text"] == "ERROR" and l.get("scenario.id") == run["id"] for l in e.log_lines())
 
 
+def test_finished_runs_say_how_they_ended_newest_first(tmp_path):
+    """2026-10-09 ~06:25Z: GET /scenarios on a tentacle answered finished [] although runs had ended there."""
+    e = Env(tmp_path, pg_dsn="postgresql://nobody@127.0.0.1:1/none")
+    with e.client:
+        done = e.wait(e.start("/scenario/memory", seconds=1, mb=1)["id"])
+        failed = e.wait(e.start("/scenario/pg", seconds=1, clients=1)["id"])
+        long = e.start("/scenario/logs", seconds=300, rate=1)
+        stopped = e.client.post(f"/scenario/stop/{long['id']}", headers=AUTH).json()
+        listing = e.client.get("/scenarios").json()
+    assert listing["running"] == []
+    assert [r["id"] for r in listing["finished"]] == [long["id"], failed["id"], done["id"]]
+    assert [(r["status"], r["reason"]) for r in listing["finished"]] == [
+        ("stopped", "stopped"), ("failed", "error"), ("finished", "completed")]
+    assert stopped["reason"] == "stopped" and long["reason"] is None
+    for r in listing["finished"]:
+        assert r["started_at"] <= r["ended_at"] and r["elapsed_s"] >= 0 and isinstance(r["result"], dict)
+    assert listing["finished"][2]["result"] == {"held_mb": 1}
+    assert "OperationalError" in listing["finished"][1]["error"]
+    assert e.client.post(f"/scenario/stop/{done['id']}", headers=AUTH).json()["reason"] == "completed"
+
+
+def test_the_last_50_finished_runs_are_kept(env, monkeypatch):
+    monkeypatch.setattr(tentacle.Tentacle, "memory", lambda self, run: {"held_mb": run.params["mb"]})
+    ids = [env.wait(env.start("/scenario/memory", seconds=1, mb=1)["id"])["id"] for _ in range(53)]
+    finished = env.client.get("/scenarios").json()["finished"]
+    assert len(finished) == tentacle.KEEP_FINISHED == 50
+    assert [r["id"] for r in finished] == ids[::-1][:50]
+
+
+def test_finished_runs_survive_a_restart_and_a_cut_run_says_so(tmp_path, monkeypatch):
+    """A redeploy or a crash restarts the service (Restart=always) and used to empty the listing."""
+    monkeypatch.setattr(tentacle.Tentacle, "memory", lambda self, run: {"held_mb": run.params["mb"]})
+    first = Env(tmp_path)
+    with first.client:
+        done = first.wait(first.start("/scenario/memory", seconds=1, mb=1)["id"])
+        cut = first.start("/scenario/logs", seconds=300, rate=1)
+        state = json.loads((Path(first.settings.data_dir) / tentacle.RUNS_FILE).read_text())
+        assert [r["id"] for r in state["running"]] == [cut["id"]]
+        assert [r["id"] for r in state["finished"]] == [done["id"]]
+    # the first process's shutdown stopped the logs run; put back what a kill -9 would have left
+    (Path(first.settings.data_dir) / tentacle.RUNS_FILE).write_text(json.dumps(state))
+    second = Env(tmp_path)
+    with second.client:
+        listing = second.client.get("/scenarios").json()
+    assert listing["running"] == []
+    lost, kept = listing["finished"]
+    assert kept == done
+    assert lost["id"] == cut["id"] and (lost["status"], lost["reason"]) == ("failed", "error")
+    assert lost["error"].startswith("the tentacle restarted at ") and lost["ended_at"] >= lost["started_at"]
+    assert any("1 run(s) ended by a restart" in line for line in second.stdout.getvalue().splitlines())
+
+
+def test_an_unwritable_runs_file_does_not_fail_runs(tmp_path):
+    e = Env(tmp_path)
+    Path(e.settings.data_dir).mkdir(parents=True)
+    (Path(e.settings.data_dir) / tentacle.RUNS_FILE).mkdir()  # a directory where the file should be
+    with e.client:
+        done = e.wait(e.start("/scenario/memory", seconds=1, mb=1)["id"])
+        assert done["reason"] == "completed"
+    assert "not written" in e.stdout.getvalue()
+
+
 def test_parameter_validation(env):
     assert env.client.post("/scenario/cpu", params={"seconds": 0}, headers=AUTH).status_code == 422
     assert env.client.post("/scenario/logs", params={"error_pct": 101}, headers=AUTH).status_code == 422

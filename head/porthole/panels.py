@@ -76,11 +76,13 @@ def error_info(e: BaseException) -> dict:
     return {"status": None, "message": f"{type(e).__name__}: {e}"}
 
 
-def load_probe_metrics(watcher_dir: Path) -> dict[str, str]:
+def load_probe_metrics(watcher_dir: Path, key: str = "metric") -> dict[str, str]:
+    """kind -> the family's seen probe (key metric), or with key moved_by the metric deep water's moved check
+    reads, which is the seen probe for a family without moved_by."""
     try:
         data = json.loads((watcher_dir / "probe_metrics.json").read_text())
-        return {kind: v["metric"] for kind, v in data["families"].items()}
-    except (OSError, ValueError, KeyError):
+        return {kind: v.get(key) or v["metric"] for kind, v in data["families"].items()}
+    except (OSError, ValueError, KeyError, AttributeError):
         return {"tentacle": "do.droplets.cpu_utilization"}
 
 
@@ -90,6 +92,7 @@ class Panels:
         self.fleet: Fleet = deps.settings.fleet
         self.probe_mode = "selector"
         self.probe_metrics = load_probe_metrics(deps.watcher_dir)
+        self.moved_metrics = load_probe_metrics(deps.watcher_dir, "moved_by")
 
     @property
     def ttl(self) -> float:

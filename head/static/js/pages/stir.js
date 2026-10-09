@@ -51,6 +51,10 @@ $("#start").addEventListener("click", async () => {
 });
 needsKey($("#start"));
 
+// how a finished run ended, and the status color for it
+const REASONS = { finished: "completed", stopped: "stopped", failed: "error" };
+const REASON_CLASS = { completed: "finished", stopped: "stopped", error: "failed" };
+
 function limitOf(run) { return run.params && (run.params.seconds || null); }
 
 function renderListing() {
@@ -67,13 +71,20 @@ function renderListing() {
       } }, "stop"))));
   }
   tick();
-  const rows = listing.finished.slice(0, 50).map((r) => el("tr", {}, el("td", { class: "nowrap" }, fmtTime(r.started_at)),
-    el("td", {}, display(r.target)), el("td", {}, r.name), el("td", { class: "small mono" }, JSON.stringify(r.params)),
-    el("td", {}, el("span", { class: `status ${r.status}` }, r.status), " ",
-      el("span", { class: "small dim" }, r.error || JSON.stringify(r.result || {})))));
-  clear($("#finished")).append(rows.length ? el("table", {}, el("thead", {}, el("tr", {}, ["time", "target", "scenario", "params",
-    "result"].map((h) => el("th", {}, h)))), el("tbody", {}, rows)) : el("p", { class: "empty" }, "None yet."));
+  const rows = listing.finished.slice(0, 50).map((r) => {
+    const reason = r.reason || REASONS[r.status] || r.status;  // a tentacle not yet redeployed sends no reason
+    const took = Number.isFinite(r.elapsed_s) ? ` (${fmtClock(r.elapsed_s)})` : "";
+    return el("tr", {}, el("td", { class: "nowrap" }, fmtTime(r.started_at)),
+      el("td", { class: "nowrap" }, `${fmtTime(r.ended_at)}${took}`),
+      el("td", {}, display(r.target)), el("td", {}, r.name), el("td", { class: "small mono" }, JSON.stringify(r.params)),
+      el("td", {}, el("span", { class: `status ${REASON_CLASS[reason] || r.status}` }, reason)),
+      el("td", { class: "small dim" }, r.error || JSON.stringify(r.result || {})));
+  });
+  clear($("#finished")).append(rows.length ? el("table", {}, el("thead", {}, el("tr", {}, ["started", "ended", "target",
+    "scenario", "params", "ended by", "result"].map((h) => el("th", {}, h)))), el("tbody", {}, rows))
+    : el("p", { class: "empty" }, "None yet."));
 }
+
 
 function tick() {
   document.querySelectorAll("#running [data-started]").forEach((n) => {

@@ -27,6 +27,8 @@ LIMITS: dict[str, dict[str, tuple[Any, float, float, type]]] = {
     "pg": {"seconds": (60, 1, 3600, int), "clients": (4, 1, 32, int)},
 }
 MAX_RUNNING = 8
+KEEP_FINISHED = 50  # tentacle.py keeps the last 50 finished runs
+REASONS = {"finished": "completed", "stopped": "stopped", "failed": "error"}
 
 
 def _json(status: int, body: Any, headers: dict | None = None) -> httpx.Response:
@@ -47,8 +49,8 @@ class FakeRun:
 
     def view(self, now: datetime) -> dict:
         end = self.ended_at or now
-        return {"id": self.id, "name": self.name, "status": self.status, "params": self.params,
-                "started_at": self.started_at.isoformat(),
+        return {"id": self.id, "name": self.name, "status": self.status, "reason": REASONS.get(self.status),
+                "params": self.params, "started_at": self.started_at.isoformat(),
                 "ended_at": self.ended_at.isoformat() if self.ended_at else None,
                 "elapsed_s": round((end - self.started_at).total_seconds(), 3), "result": self.result,
                 "error": self.error}
@@ -124,9 +126,10 @@ class FakeTentacle:
                 body.update(mem_avail_mb=self.mem_avail_mb(), mem_total_mb=self.mem_total_mb)
             return _json(200, body)
         if request.method == "GET" and path == "/scenarios":
-            runs = sorted(self.runs.values(), key=lambda r: r.started_at, reverse=True)
-            return _json(200, {"running": [r.view(now) for r in runs if r.status == "running"],
-                               "finished": [r.view(now) for r in runs if r.status != "running"]})
+            running = sorted(self.running(), key=lambda r: r.started_at, reverse=True)
+            done = sorted((r for r in self.runs.values() if r.status != "running"),
+                          key=lambda r: r.ended_at or r.started_at, reverse=True)[:KEEP_FINISHED]
+            return _json(200, {"running": [r.view(now) for r in running], "finished": [r.view(now) for r in done]})
         auth = request.headers.get("authorization")
         self.auth_seen.append(auth)
         if not self.key:

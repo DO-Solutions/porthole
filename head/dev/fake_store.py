@@ -36,6 +36,14 @@ ERR_STRING_INSTANT = {"error": "json: cannot unmarshal string into Go value of t
                       "code": 3}
 OWNER_ID = 1000001  # an obviously fake owner id
 DEFAULT_RULES = Path(__file__).resolve().parents[2] / "watcher" / "alerts" / "round-trip.json"
+# A39, 2026-10-09: the team's legacy Monitoring policies mirrored into Insights. GET by id answers, the list never
+# shows them, they have no resource filter, so they fire on every Droplet of the team. Ids, names and thresholds
+# are the live ones; the specs' other fields are a guess at what the mirror holds.
+MIRRORS = (("25cd5489-13f6-430f-a9fd-a9e2676c1ce0", "CPU is running high", 70, "EVALUATION_WINDOW_5M"),
+           ("d4bede3a-5365-4afb-83e7-c0bdfbefc149", "CPU Utilization Percent is running high", 50,
+            "EVALUATION_WINDOW_30M"))
+MIRRORED_AT = "2026-09-18T18:24:32Z"
+OUTSIDE_URN = "do:droplet:999999901"  # a team member's Droplet that is not in the fleet
 
 
 def _iso(dt: datetime) -> str:
@@ -97,7 +105,25 @@ class FakeStore:
                 for days in (1, 2):
                     t0 = self.now() - timedelta(days=days, hours=3)
                     self.instances.append(self._instance(rid, target.urn, 71.4 + days, t0, t0 + timedelta(minutes=9)))
+        self._seed_mirrors(email_id)
         self._count_usage()
+
+    def _seed_mirrors(self, channel_id: str) -> None:
+        for rid, name, critical, window in MIRRORS:
+            spec = {"name": name, "query": {"metric": "do.droplets.cpu_utilization"},
+                    "thresholds": {"operator": "THRESHOLD_OPERATOR_GREATER_THAN", "critical": critical},
+                    "condition": {"window": window}, "re_alert_duration": "RE_ALERT_DURATION_4H",
+                    "notification_channels": [{"notification_channel_id": channel_id,
+                                               "notify_on": ["SEVERITY_CRITICAL"]}]}
+            self.rules[rid] = {"id": rid, "spec": spec, "owner_id": OWNER_ID, "created_at": MIRRORED_AT,
+                               "updated_at": MIRRORED_AT, "status": "ALERT_RULE_STATUS_ACTIVE"}
+        t0 = self.now() - timedelta(days=1, hours=3)
+        rid = MIRRORS[1][0]
+        if self.fleet.tentacles:
+            urn = self.fleet.tentacles[0].urn
+            self.instances.append(self._instance(rid, urn, 52.3, t0, t0 + timedelta(minutes=31)))
+        self.instances.append(self._instance(rid, OUTSIDE_URN, 88.0, t0 - timedelta(hours=5),
+                                             t0 - timedelta(hours=4)))
 
     def _count_usage(self) -> None:
         for ch in self.channels.values():
@@ -222,7 +248,7 @@ class FakeStore:
                 window = WINDOW_S.get((spec.get("condition") or {}).get("window"), 300)
                 urns = spec["query"].get("resource_urns") or []
                 for e in self.model.entities:
-                    series = [s for s in self.model.series(e.region) if s.metric == name
+                    series = [s for s in self.model.series(e.region) if s.metric == name and s.entity is e
                               and (not urns or s.labels["resource_urn"] in urns)]
                     if not series:
                         continue

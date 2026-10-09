@@ -213,17 +213,91 @@ async def test_deep_water_loads_the_database_harder_and_names_each_metric():
         run = await sail(env, "deep-water")
         assert await env.run_until(lambda: run.status != "sailing")
         assert run.status == "done", run.error
-        [pg] = [r for r in env.fleet.by_name("kraken-tentacle-1").runs.values() if r.name == "pg"]
+        [pg] = [r for r in env.fleet.by_name("kraken-tentacle-2").runs.values() if r.name == "pg"]
         assert pg.params["seconds"] == 180 and pg.params["clients"] == 8
         assert all(v is not None for v in run.summary["moved_after_s"].values()), run.summary
         watch = run.step("watch")
-        assert watch.data["metrics"] == {"database": "do.databases.cpu_utilization",
+        assert watch.data["metrics"] == {"database": "do.databases.load_avg_1m",
                                          "functions": "do.functions.activations",
                                          "load_balancer": "do.load_balancers.connections_active"}
-        for part in ("database (do.databases.cpu_utilization): moved after",
+        for part in ("database (moved by do.databases.load_avg_1m, seen by do.databases.cpu_utilization): moved after",
                      "functions (do.functions.activations): moved after",
                      "load_balancer (do.load_balancers.connections_active): moved after"):
             assert part in watch.text
+
+
+def pg_runs(env, name):
+    return [r for r in env.fleet.by_name(name).runs.values() if r.name == "pg"]
+
+
+async def test_deep_water_moves_the_database_by_load_average_against_a_pre_load_baseline(env):
+    """B-035, run v-670380: database CPU went 15 -> 21 % and was called "data but no change", while the load average
+    went 0.16 -> 0.97. The CPU series stores NaN every other minute (A40). The pg clients ran on kraken-tentacle-1,
+    held it at 69 % CPU and fired the round-trip rule that watches it."""
+    run = await sail(env, "deep-water")
+    assert await env.run_until(lambda: run.status != "sailing")
+    assert run.status == "done", run.error
+    base = run.step("baseline")
+    assert base.data["samples"]["database"] == 6 and 0.1 < base.data["baseline"]["database"] < 0.3
+    assert base.text.startswith("database do.databases.load_avg_1m 0.")
+    assert base.text.endswith(" over the 5 minutes before the load")
+    assert pg_runs(env, "kraken-tentacle-1") == [] and len(pg_runs(env, "kraken-tentacle-2")) == 1
+    assert run.step("start-pg").text.endswith(" on kraken-tentacle-2")
+    watch = run.step("watch")
+    assert run.summary["moved_after_s"]["database"] is not None
+    assert watch.data["seen_metrics"]["database"] == "do.databases.cpu_utilization"
+    assert watch.data["last"]["database"] > 0.9
+    assert "data but no change" not in watch.text
+
+
+async def test_deep_water_runs_pg_on_the_target_it_is_given(env):
+    run = await sail(env, "deep-water", {"target": "tentacle-1"})
+    assert await env.run_until(lambda: run.status != "sailing")
+    assert run.status == "done", run.error
+    assert run.params == {"target": "kraken-tentacle-1"}
+    assert len(pg_runs(env, "kraken-tentacle-1")) == 1 and pg_runs(env, "kraken-tentacle-2") == []
+
+
+async def test_deep_water_skips_nan_samples_when_cpu_is_the_moved_metric(env):
+    """With the old moved check on do.databases.cpu_utilization, a NaN first sample became the baseline and nothing
+    is ever larger than NaN. Read NaN-safe and against the pre-load mean, the CPU's 15 -> 21 % counts as moved."""
+    env.deps.panels.moved_metrics["database"] = "do.databases.cpu_utilization"
+    run = await sail(env, "deep-water")
+    assert await env.run_until(lambda: run.status != "sailing")
+    assert run.status == "done", run.error
+    assert run.step("baseline").data["samples"]["database"] == 3  # NaN in every other minute
+    assert run.summary["moved_after_s"]["database"] is not None
+    assert "database (do.databases.cpu_utilization): moved after" in run.step("watch").text
+
+
+class StubCtx:
+    """What value() and window_mean() use of a voyage context, answering every Insights call with one body."""
+
+    def __init__(self, env, body):
+        self.fleet, self.body, self.calls = env.deps.settings.fleet, body, []
+
+    def now(self):
+        from datetime import datetime, timezone
+        return datetime(2026, 10, 9, 6, 25, tzinfo=timezone.utc)
+
+    async def insights(self, method, *args, **kwargs):
+        self.calls.append(method)
+        return self.body
+
+
+async def test_value_and_window_mean_treat_nan_as_no_sample(env):
+    from porthole.voyages_metrics import sample, value, window_mean
+    assert [sample(x) for x in ("NaN", "+Inf", "-Inf", "x", None, "15.3")] == [None] * 5 + [15.3]
+    vector = {"data": {"result": [{"metric": {}, "value": [1, "NaN"]}, {"metric": {}, "value": [1, "21"]}]}}
+    assert await value(StubCtx(env, vector), "do.databases.cpu_utilization", "kraken-pg", "tor1") == 21.0
+    nan_only = {"data": {"result": [{"metric": {}, "value": [1, "NaN"]}]}}
+    assert await value(StubCtx(env, nan_only), "do.databases.cpu_utilization", "kraken-pg", "tor1") is None
+    matrix = {"data": {"result": [{"metric": {}, "values": [[1, "15.3"], [2, "NaN"], [3, "15.0"], [4, "NaN"]]}]}}
+    ctx = StubCtx(env, matrix)
+    assert await window_mean(ctx, "do.databases.cpu_utilization", "kraken-pg", "tor1", 300) == (15.15, 2)
+    assert ctx.calls == ["query_range"]
+    assert await window_mean(StubCtx(env, {"data": {"result": []}}), "do.databases.load_avg_1m", "kraken-pg",
+                             "tor1", 300) == (None, 0)
 
 
 async def test_chain_points_at_the_heads_own_span(env):

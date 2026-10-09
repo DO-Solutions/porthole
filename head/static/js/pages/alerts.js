@@ -30,18 +30,29 @@ function renderRules() {
       el("td", {}, (r.channels || []).map((c) => `${names[c.id] || c.id}${c.notify_on.length ? ` (${c.notify_on.join(", ")})` : ""}`).join("; ")),
       el("td", {}, toggle));
   });
+  // rules the team's instances name and the fleet description does not (finding A39), read-only
+  for (const r of data.unknown_rules || []) {
+    const cond = r.operator ? `${r.operator} warning ${r.warning ?? "-"}, critical ${r.critical ?? "-"}` : "";
+    rows.push(el("tr", {}, el("td", {}, r.name || r.id, " ", label(r.label)), el("td", {}, el("code", {}, r.metric || "")),
+      el("td", {}, cond), el("td", {}, r.window || ""), el("td", {}, r.re_alert || ""),
+      el("td", {}, el("span", { class: `status ${r.status === "active" ? "good" : "skipped"}` }, r.status)),
+      el("td", {}, (r.channels || []).map((c) => names[c.id] || c.id).join("; ")), el("td", {})));
+  }
   clear($("#rules")).append(table(["name", "metric", "condition", "window", "re-alert", "status", "channels", ""], rows,
     "No rules in the fleet description."));
 }
 
+function label(text) { return text ? el("span", { class: "badge", title: "this rule is not in the fleet description" }, text) : null; }
+
 function renderInstances() {
   const items = data.instances.filter((i) => filter === "all" || i.status === filter);
   const rows = items.map((i) => el("tr", {}, el("td", { class: "nowrap" }, fmtDateTime(i.triggered_at)),
-    el("td", { class: "nowrap" }, i.resolved_at ? fmtDateTime(i.resolved_at) : ""), el("td", {}, i.rule_name || i.rule_id),
+    el("td", { class: "nowrap" }, i.resolved_at ? fmtDateTime(i.resolved_at) : ""),
+    el("td", {}, i.rule_name || i.rule_id, " ", label(i.rule_label)),
     el("td", {}, i.entity || ""), el("td", {}, i.severity), el("td", { class: "num" }, String(i.value ?? "")),
     el("td", {}, el("span", { class: `status ${i.status === "active" ? "failure" : "good"}` }, i.status))));
   clear($("#instances")).append(table(["triggered", "resolved", "rule", "resource", "severity", "value", "status"], rows,
-    filter === "active" ? "Nothing is alerting right now." : "No instances for these rules in the last 30 days."));
+    filter === "active" ? "Nothing is alerting right now." : "No instances in the last 30 days."));
 }
 
 function renderChannels() {

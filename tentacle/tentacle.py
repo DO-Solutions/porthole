@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,7 +45,12 @@ from opentelemetry.trace import Link, SpanKind, Status, StatusCode
 
 SEVERITY = {"DEBUG": 5, "INFO": 9, "WARN": 13, "ERROR": 17}
 MAX_RUNNING = 8
-KEEP_FINISHED = 200
+KEEP_FINISHED = 50
+# how a run ended, from its status
+REASONS = {"finished": "completed", "stopped": "stopped", "failed": "error"}
+# The runs file in TENTACLE_DATA_DIR: the running and the last KEEP_FINISHED finished runs, rewritten whenever a
+# run starts or ends, so a restart (a redeploy, a crash, systemd's Restart=always) does not empty /scenarios.
+RUNS_FILE = "runs.json"
 MiB = 1024 * 1024
 
 
@@ -198,35 +204,98 @@ class Run:
 
     def view(self) -> dict:
         end = self.ended or time.time()
-        return {"id": self.id, "name": self.name, "status": self.status, "params": self.params,
-                "started_at": datetime.fromtimestamp(self.started, timezone.utc).isoformat(),
-                "ended_at": datetime.fromtimestamp(self.ended, timezone.utc).isoformat() if self.ended else None,
+        return {"id": self.id, "name": self.name, "status": self.status, "reason": REASONS.get(self.status),
+                "params": self.params, "started_at": _iso(self.started), "ended_at": _iso(self.ended),
                 "elapsed_s": round(end - self.started, 3), "result": self.result, "error": self.error}
 
 
+def _iso(t: float | None) -> str | None:
+    return datetime.fromtimestamp(t, timezone.utc).isoformat() if t else None
+
+
 class Scenarios:
+    """The running runs, and the views of the last KEEP_FINISHED finished ones in the order they ended.
+
+    A run moves from `runs` to `finished` when its thread ends. Both are written to the runs file; on start the
+    tentacle reads it back, and a run the previous process was still running is kept as ended by the restart
+    (reason error), so a restart shows up in /scenarios instead of emptying it."""
+
     def __init__(self, tentacle: "Tentacle"):
         self.t = tentacle
         self.runs: dict[str, Run] = {}
+        self.finished: deque[dict] = deque(maxlen=KEEP_FINISHED)
         self._lock = threading.Lock()
+        self.path = Path(tentacle.settings.data_dir) / RUNS_FILE
+        self._load()
 
     def running(self) -> list[Run]:
-        return [r for r in self.runs.values() if r.status == "running"]
+        with self._lock:
+            return list(self.runs.values())
+
+    def listing(self) -> dict:
+        """GET /scenarios: running newest started first, finished newest ended first."""
+        with self._lock:
+            running = sorted(self.runs.values(), key=lambda r: r.started, reverse=True)
+            return {"running": [r.view() for r in running], "finished": list(reversed(self.finished))}
 
     def start(self, name: str, params: dict, fn: Callable[[Run], dict]) -> Run:
         with self._lock:
-            if len(self.running()) >= MAX_RUNNING:
+            if len(self.runs) >= MAX_RUNNING:
                 raise HTTPException(429, f"{MAX_RUNNING} scenarios already running")
             run = Run(id=f"{name}-{uuid.uuid4().hex[:8]}", name=name, params=params)
             self.runs[run.id] = run
-            finished = [r for r in self.runs.values() if r.status != "running"]
-            for old in sorted(finished, key=lambda r: r.started)[:-KEEP_FINISHED]:
-                self.runs.pop(old.id, None)
+            self._save()
         run.thread = threading.Thread(target=self._execute, args=(run, fn), name=run.id, daemon=True)
         run.thread.start()
         return run
 
+    def _finish(self, run: Run) -> None:
+        with self._lock:
+            self.runs.pop(run.id, None)
+            self.finished.append(run.view())
+            self._save()
+
+    def _load(self) -> None:
+        try:
+            saved = json.loads(self.path.read_text())
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError) as e:
+            self.t.log.warn(f"runs file {self.path} not read: {e}")
+            return
+        restarted = _iso(self.t.started)
+        lost = [{**v, "status": "failed", "reason": "error", "ended_at": restarted,
+                 "error": f"the tentacle restarted at {restarted} while this run was going"}
+                for v in saved.get("running") or [] if isinstance(v, dict)]
+        done = [v for v in saved.get("finished") or [] if isinstance(v, dict)] + lost
+        self.finished.extend(sorted(done, key=lambda v: str(v.get("ended_at") or "")))
+        if lost:
+            self.t.log.warn(f"{len(lost)} run(s) ended by a restart: {', '.join(str(v.get('id')) for v in lost)}")
+            with self._lock:
+                self._save()
+
+    def _save(self) -> None:
+        """Rewrite the runs file (the caller holds the lock). Never fails a run: a full or read-only disk is
+        logged and the listing stays in memory."""
+        state = {"running": [r.view() for r in self.runs.values()], "finished": list(self.finished)}
+        tmp = self.path.with_suffix(".tmp")
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(json.dumps(state, default=str))
+            os.replace(tmp, self.path)
+        except OSError as e:
+            self.t.log.warn(f"runs file {self.path} not written: {e}")
+
     def _execute(self, run: Run, fn: Callable[[Run], dict]) -> None:
+        try:
+            self._traced(run, fn)
+        finally:
+            run.ended = run.ended or time.time()
+            if run.status == "running":  # something outside Exception ended the thread
+                run.status, run.error = "failed", run.error or "the scenario thread ended without a result"
+            self._finish(run)
+
+    def _traced(self, run: Run, fn: Callable[[Run], dict]) -> None:
         attrs = {"scenario.name": run.name, "scenario.id": run.id, "tentacle": self.t.settings.name,
                  **{f"scenario.{k}": v for k, v in run.params.items() if v is not None}}
         tracer = self.t.tracer
@@ -251,17 +320,25 @@ class Scenarios:
                 else:
                     self.t.log.info(f"scenario {run.name} end ({run.status})", **end_attrs)
 
-    def stop(self, run_id: str) -> Run:
-        run = self.runs.get(run_id)
-        if not run:
-            raise HTTPException(404, f"no scenario {run_id}")
+    def stop(self, run_id: str, timeout: float = 10) -> dict:
+        """Stop a run and wait up to `timeout` for its thread; a run that already ended answers its view."""
+        with self._lock:
+            run = self.runs.get(run_id)
+            done = next((v for v in self.finished if v.get("id") == run_id), None)
+        if run is None:
+            if done is None:
+                raise HTTPException(404, f"no scenario {run_id}")
+            return done
         run.stop.set()
-        return run
+        if run.thread:
+            run.thread.join(timeout)
+        return run.view()
 
     def stop_all(self, timeout: float = 10) -> None:
-        for r in self.running():
+        running = self.running()
+        for r in running:
             r.stop.set()
-        for r in list(self.runs.values()):
+        for r in running:
             if r.thread and r.thread.is_alive():
                 r.thread.join(timeout)
 
@@ -612,9 +689,7 @@ def create_app(settings: Settings | None = None, span_exporter=None, log_exporte
 
     @app.get("/scenarios")
     def scenarios() -> dict:
-        runs = sorted(t.scenarios.runs.values(), key=lambda r: r.started, reverse=True)
-        return {"running": [r.view() for r in runs if r.status == "running"],
-                "finished": [r.view() for r in runs if r.status != "running"]}
+        return t.scenarios.listing()
 
     @app.post("/scenario/cpu", dependencies=auth, status_code=202)
     def scenario_cpu(seconds: int = Query(120, ge=1, le=3600),
@@ -677,10 +752,7 @@ def create_app(settings: Settings | None = None, span_exporter=None, log_exporte
 
     @app.post("/scenario/stop/{run_id}", dependencies=auth)
     def scenario_stop(run_id: str) -> dict:
-        run = t.scenarios.stop(run_id)
-        if run.thread:
-            run.thread.join(10)
-        return run.view()
+        return t.scenarios.stop(run_id)
 
     FastAPIInstrumentor.instrument_app(app, tracer_provider=t.tracer_provider, excluded_urls="/health",
                                        exclude_spans=["receive", "send"])

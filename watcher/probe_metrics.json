@@ -1,10 +1,10 @@
 {
-  "description": "One metric per resource family for the fleet dots on the Bridge. The head first asks count by (resource_urn) ({resource_urn=~\"...\"}) with no metric name; if Insights rejects that, it switches to these metrics, one query per family and region. verified true means the name is in the region catalog (watcher/catalog, from label/__name__/values); scripts/check_metric_names.py fails CI on a name that is not, and the head logs a warning at startup.",
+  "description": "One metric per resource family for the fleet dots on the Bridge. The head first asks count by (resource_urn) ({resource_urn=~\"...\"}) with no metric name; if Insights rejects that, it switches to these metrics, one query per family and region. metric is the family's seen probe: a sample in the last five minutes lights the dot, and deep water counts the family as reporting. moved_by, where present, is the metric deep water compares with its pre-load baseline to say whether the family moved with the load; without it, metric serves both. verified true means the name is in the region catalog (watcher/catalog, from label/__name__/values); scripts/check_metric_names.py fails CI on a name that is not, and the head logs a warning at startup.",
   "families": {
     "tentacle": {"metric": "do.droplets.cpu_utilization", "verified": true, "source": "facts pack, probes in nyc3"},
     "app": {"metric": "do.apps.app_cpu_utilization", "verified": true, "source": "facts pack, tor1 catalog"},
     "load_balancer": {"metric": "do.load_balancers.connections_active", "verified": true, "source": "tor1 catalog, deep-water v-aba9cd 2026-10-09"},
-    "database": {"metric": "do.databases.cpu_utilization", "verified": true, "source": "tor1 catalog 2026-10-09"},
+    "database": {"metric": "do.databases.cpu_utilization", "moved_by": "do.databases.load_avg_1m", "verified": true, "source": "tor1 catalog 2026-10-09; moved_by from deep-water v-670380 (load average 0.16 to 0.97 under 8 clients, CPU 15 to 21 %, B-035)"},
     "kubernetes": {"metric": "do.kubernetes.node_cpu_utilization", "verified": true, "source": "tor1 catalog 2026-10-09"},
     "functions": {"metric": "do.functions.activations", "verified": true, "source": "tor1 catalog, deep-water v-aba9cd 2026-10-09"},
     "spaces": {"metric": "do.spaces.requests", "verified": true, "source": "tor1 catalog 2026-10-09"},

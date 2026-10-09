@@ -45,6 +45,8 @@ DB_FS = tuple({"filesystem_mountpoint": f"/srv/aiven-persistent/kraken-pg-{v}", 
                "filesystem_device": f"/dev/mapper/kraken-pg-{v}"} for v in ("service", "scratch"))
 # Counters: the value only grows, and rate()/increase() over them are computed from two samples.
 COUNTERS = {"do_load_balancers_http_responses_by_status"}
+# The database series SeriesModel._database values on the two-minute cadence of A40
+DB_TWO_MINUTE = {"do_databases_cpu_utilization", "do_databases_load_avg_1m", "do_databases_pg_connections_active"}
 
 # underscored name -> (unit, label variants). Every name is in watcher/catalog (scripts/check_metric_names.py
 # checks); the values are synthetic.
@@ -75,6 +77,7 @@ FAMILIES: dict[str, dict[str, tuple[str, tuple[dict, ...]]]] = {
     },
     "database": {
         "do_databases_cpu_utilization": ("percent", ({},)), "do_databases_memory_utilization": ("percent", ({},)),
+        "do_databases_load_avg_1m": ("plain", ({},)),
         "do_databases_pg_connections_active": ("plain", ({},)), "do_databases_filesystem_free": ("bytes", DB_FS),
     },
     "kubernetes": {
@@ -179,13 +182,13 @@ class SeriesModel:
         e, m, key = s.entity, s.metric, f"{s.metric}:{sorted(s.labels.items())}"
         if e.slot == 3 and int(t // 60) % 23 == 0:
             return None  # one tentacle drops a sample now and then, so gaps show as gaps
+        if m in DB_TWO_MINUTE:
+            return self._database(s, t)
         n, w = _noise(key, t), _wave(key, t, 1800)
         if m.endswith("cpu_utilization"):
             v = 2.5 + 1.5 * n + w
             if e.kind == "tentacle" and self._active(e, "cpu", t):
                 v = 95.5 + 3 * n
-            if e.kind == "database" and self._active(e, "pg", t):
-                v += 40 + 5 * n
             return round(min(100.0, max(0.0, v)), 3)
         if m.startswith("do_droplets_load_"):
             runs = self._active(e, "cpu", t)
@@ -234,9 +237,25 @@ class SeriesModel:
             return round(12 + 6 * n, 2)
         if m == "do_functions_errors_total":
             return 0.0
-        if m == "do_databases_pg_connections_active":
-            return float(3 + sum(r["params"].get("clients", 0) for r in self._active(e, "pg", t)))
         return round(10 + 5 * n + 3 * w, 3)
+
+    def _database(self, s: Series, t: float) -> float | None:
+        """A40, tor1 2026-10-09: database metrics arrive every two minutes. The CPU series stores NaN in the minute
+        between, and the load average carries the two-minute value forward, so its values come in pairs. Deep water
+        v-670380 under 8 pg clients for 180 s: CPU 15 to 21 %, load average 0.16 to 0.97, and
+        pg_connections_active 0 at every sample."""
+        m, minute = s.metric, int(t // 60)
+        key = f"{m}:{sorted(s.labels.items())}"
+        t2 = (minute - minute % 2) * 60.0
+        n, w = _noise(key, t2), _wave(key, t2, 1800)
+        clients = sum(r["params"].get("clients", 0) for r in self._active(s.entity, "pg", t2))
+        if m == "do_databases_cpu_utilization":
+            if minute % 2:
+                return math.nan
+            return round(15 + 2 * n + w + (6 if clients else 0), 3)
+        if m == "do_databases_load_avg_1m":
+            return round(0.16 + 0.1 * n + 0.1 * clients, 3)
+        return 0.0  # do_databases_pg_connections_active
 
     def _load(self, t: float, kind: str, since: float | None = None) -> int:
         """Requests of this kind in the minute before t less the lag, or from since to then."""

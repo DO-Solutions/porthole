@@ -4,6 +4,7 @@ Each records the times the design names: burn to crossing, crossing to alert, al
 resolved, and when each region showed a burn. voyages_catalog.py declares their planned steps."""
 from __future__ import annotations
 
+import math
 import operator
 import re
 from datetime import timedelta
@@ -44,16 +45,42 @@ def tentacle(ctx: Any, name: str | None) -> Any:
     return t
 
 
-async def value(ctx: Any, metric: str, name: str, region: str, agg: str = "avg") -> float | None:
-    """One fresh instant value for one fleet member, selected by its URN (no panel cache: voyages need each
-    reading)."""
+def sample(raw: Any) -> float | None:
+    """A Prometheus sample value as a float, or None when it is not a number. The managed-database series store
+    "NaN" every other minute (A40), and a NaN compared with a baseline is never larger, so it counts as no sample."""
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def _member_query(ctx: Any, metric: str, name: str, region: str, agg: str) -> str:
     member = ctx.fleet.entity(name)
     if member is None:
         raise VoyageFailed(f"{name} is not in the fleet description")
-    q = promql.build(metric, agg, promql.member_filters(member), region, ctx.fleet)
+    return promql.build(metric, agg, promql.member_filters(member), region, ctx.fleet)
+
+
+async def value(ctx: Any, metric: str, name: str, region: str, agg: str = "avg") -> float | None:
+    """One fresh instant value for one fleet member, selected by its URN (no panel cache: voyages need each
+    reading). The first series with a number wins; NaN is no sample."""
+    q = _member_query(ctx, metric, name, region, agg)
     body = await ctx.insights("query", q, region=region)
     result = ((body or {}).get("data") or {}).get("result") or []
-    return float(result[0]["value"][1]) if result else None
+    return next((v for v in (sample((r.get("value") or [None, None])[1]) for r in result) if v is not None), None)
+
+
+async def window_mean(ctx: Any, metric: str, name: str, region: str, seconds: int,
+                      agg: str = "avg") -> tuple[float | None, int]:
+    """The mean of one fleet member's samples over the last `seconds`, at a 60 s step, and how many samples went
+    into it. NaN points are skipped (A40); (None, 0) when there are none."""
+    q = _member_query(ctx, metric, name, region, agg)
+    end = ctx.now()
+    body = await ctx.insights("query_range", q, end - timedelta(seconds=seconds), end, "60s", region=region)
+    points = [v for r in ((body or {}).get("data") or {}).get("result") or []
+              for v in (sample(p[1]) for p in r.get("values") or []) if v is not None]
+    return (sum(points) / len(points) if points else None), len(points)
 
 
 async def finished(ctx: Any, target: str, run_id: str) -> dict | None:

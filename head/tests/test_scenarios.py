@@ -140,3 +140,20 @@ async def test_runs_finish_on_the_clock_and_announce_it(env):
     finished = (await env.client.get("/api/fleet/scenarios")).json()["finished"]
     assert any(r["id"] == run_id and r["target"] == "kraken-tentacle-1" for r in finished)
     assert env.clock.now() - env.clock.start_wall >= timedelta(seconds=45)
+
+
+async def test_the_merged_listing_says_how_each_run_ended_newest_first(env):
+    """The Stir page's finished table: tentacle and head runs together, the last to end first, each with its
+    started and ended times and the reason it ended (completed, stopped, error)."""
+    long = (await start(env, "tentacle-2", "cpu", {"seconds": 300})).json()["id"]
+    short = (await start(env, "tentacle-1", "cpu", {"seconds": 30})).json()["id"]
+    await env.advance(45)
+    r = await env.client.post("/api/scenarios/stop", headers=env.captain(), json={"target": "tentacle-2",
+                                                                                  "run_id": long})
+    assert r.json()["reason"] == "stopped"
+    head = (await start(env, "head", "fn", {"seconds": 10, "rps": 1})).json()["id"]
+    await env.advance(15)
+    finished = (await env.client.get("/api/fleet/scenarios")).json()["finished"]
+    assert [(r["id"], r["reason"]) for r in finished[:3]] == [(head, "completed"), (long, "stopped"),
+                                                              (short, "completed")]
+    assert all(r["started_at"] and r["ended_at"] and r["elapsed_s"] >= 0 for r in finished[:3])

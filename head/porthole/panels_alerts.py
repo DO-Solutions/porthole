@@ -1,7 +1,11 @@
 """The alerts overview: rules fetched by id from the fleet description, their instances, and the channels.
 
 Rules are never discovered by listing, because the list omits rules created in the control panel (finding A2).
-Pausing and resuming needs write mode and works only on the fleet's own rules."""
+The team's instance list also carries rules nobody here created: the legacy Monitoring policies come back as
+Insights rules with new ids that GET /alert-rules never lists, and they fire on every Droplet of the team, the
+tentacles included (finding A39). Those instances are shown too, and each unknown rule id is looked up once by
+id and kept for the life of the process. Pausing and resuming needs write mode and works only on the fleet's own
+rules."""
 from __future__ import annotations
 
 import asyncio
@@ -42,14 +46,34 @@ def rule_view(rule: dict, ref: RuleRef) -> dict:
             "error": None}
 
 
+UNLISTED = "not in the rule list (mirrored legacy policy?)"
+LISTED_ELSEWHERE = "not a fleet rule"
+NOT_FOUND = "rule not found by id"
+OUTSIDE = "a resource outside the fleet"
+
+
+def unknown_rule_view(rule_id: str, rule: dict | None, listed: bool) -> dict:
+    """A rule an instance names that the fleet description does not: its spec when GET by id found it, and a label
+    that says why it is unknown here."""
+    if rule is None:
+        return {"id": rule_id, "name": None, "known": False, "label": NOT_FOUND, "status": "unknown", "error": None}
+    view = rule_view(rule, RuleRef(id=rule_id, purpose="", name="", target=None))
+    return {**view, "purpose": None, "known": False, "label": LISTED_ELSEWHERE if listed else UNLISTED,
+            "created_at": rule.get("created_at")}
+
+
 def instance_view(inst: dict, rules: dict[str, dict], fleet: Any) -> dict:
     urn = inst.get("resource_urn")
-    who = next((e.display for e in fleet.entities() if urn and e.urn == urn), urn)
-    return {"id": inst.get("id"), "rule_id": inst.get("rule_id"),
-            "rule_name": (rules.get(inst.get("rule_id")) or {}).get("name"),
+    who = next((e.display for e in fleet.entities() if urn and e.urn == urn), None)
+    rule = rules.get(inst.get("rule_id")) or {}
+    unknown = rule.get("known") is False
+    if who is None and unknown:
+        urn, who = None, OUTSIDE  # a team member's own resource, not ours to name on a public page
+    return {"id": inst.get("id"), "rule_id": inst.get("rule_id"), "rule_name": rule.get("name"),
+            "rule_label": rule.get("label") if unknown else None,
             "severity": str(inst.get("severity") or "").replace("SEVERITY_", "").lower(),
             "status": str(inst.get("status") or "").replace("ALERT_INSTANCE_STATUS_", "").lower(),
-            "resource_urn": urn, "entity": who, "value": inst.get("value"),
+            "resource_urn": urn, "entity": who or urn, "value": inst.get("value"),
             "triggered_at": inst.get("triggered_at"), "resolved_at": inst.get("resolved_at"),
             "muted": inst.get("muted")}
 
@@ -70,6 +94,9 @@ class AlertPanels:
     def __init__(self, panels: Panels):
         self.p = panels
         self.deps = panels.deps
+        # rule id -> unknown_rule_view for ids the team's instances name and the fleet description does not;
+        # looked up once, since a mirrored policy's rule does not change while the head runs
+        self.unknown_rules: dict[str, dict] = {}
 
     async def overview(self) -> dict:
         res = await self.deps.cache.get("alerts", self._fetch, self.p.ttl)
@@ -111,10 +138,57 @@ class AlertPanels:
                 errors.append({"what": "channels", **error_info(e)})
                 return []
 
-        *per_rule, found = await asyncio.gather(*(instances_of(r) for r in rules if not r.get("error")), channels())
+        async def team_instances() -> list[dict]:
+            try:
+                body, _, _ = await self.p.call("panels.alerts", "list_instances", per_page=100)
+                return body.get("alert_instances") or []
+            except (InsightsError, httpx.HTTPError) as e:
+                errors.append({"what": "the team's instances", **error_info(e)})
+                return []
+
+        *per_rule, found, team = await asyncio.gather(*(instances_of(r) for r in rules if not r.get("error")),
+                                                      channels(), team_instances())
         instances = [i for batch in per_rule for i in batch]
+        ids = sorted({str(i["rule_id"]) for i in team if i.get("rule_id") and i["rule_id"] not in by_id})
+        await self._look_up([rid for rid in ids if rid not in self.unknown_rules], errors)
+        unknown = {rid: self.unknown_rules.get(rid) or {"id": rid, "name": None, "known": False, "status": "unknown",
+                                                        "label": "not a fleet rule (lookup failed)", "error": None}
+                   for rid in ids}
+        instances += [instance_view(i, unknown, fleet) for i in team if i.get("rule_id") in unknown]
         instances.sort(key=lambda i: i.get("triggered_at") or "", reverse=True)
-        return {"rules": rules, "instances": instances, "channels": found, "errors": errors}
+        return {"rules": rules, "unknown_rules": list(unknown.values()), "instances": instances, "channels": found,
+                "errors": errors}
+
+    async def _look_up(self, ids: list[str], errors: list[dict]) -> None:
+        """GET /alert-rules/{id} for each new unknown id and one GET /alert-rules to see whether the list has it.
+        A 404 is kept as not found; any other failure is not kept, so the next fetch asks again."""
+        if not ids:
+            return
+
+        async def one(rid: str) -> tuple[str, dict | None, bool]:
+            try:
+                body, _, _ = await self.p.call("panels.alerts", "get_rule", rid)
+                return rid, body.get("alert_rule") or {}, True
+            except InsightsError as e:
+                if e.status == 404:
+                    return rid, None, True
+                errors.append({"what": f"rule {rid}", **error_info(e)})
+            except httpx.HTTPError as e:
+                errors.append({"what": f"rule {rid}", **error_info(e)})
+            return rid, None, False
+
+        async def listed() -> set[str] | None:
+            try:
+                body, _, _ = await self.p.call("panels.alerts", "list_rules", per_page=200)
+                return {str(r.get("id")) for r in body.get("alert_rules") or []}
+            except (InsightsError, httpx.HTTPError) as e:
+                errors.append({"what": "the rule list", **error_info(e)})
+                return None
+
+        *found, in_list = await asyncio.gather(*(one(rid) for rid in ids), listed())
+        for rid, rule, answered in found:
+            if answered and (rule is None or in_list is not None):
+                self.unknown_rules[rid] = unknown_rule_view(rid, rule, rid in (in_list or set()))
 
     async def set_status(self, rule_id: str, status: str) -> dict:
         """Pause or resume one of the fleet's rules: get it, then PUT its spec without the channel bindings."""

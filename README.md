@@ -121,6 +121,10 @@ variable; the next deploy picks it up.
    curl" reproduces a call with your own token; "Copy as BUGS.md entry" fills the template.
 3. The app's runtime logs in App Platform: one JSON object per line. The Logs page shows the last 300.
 4. A tentacle: `curl http://<ip>:8800/health` and `/scenarios` are open; `journalctl -u tentacle` on the box.
+   `/scenarios` lists the running runs and the last 50 finished ones, newest ended first, each with a `reason`
+   (`completed`, `stopped`, `error`). They are kept in `/var/tmp/tentacle/runs.json` across restarts, and a run a
+   restart cut short is listed with reason `error` and the restart time (B-036). A small `uptime_s` in `/health`
+   means the service restarted.
 5. Insights itself: [BUGS.md](BUGS.md) lists what is unverified or known to differ from the docs.
 6. A chart or voyage reads "no data" while the resource is busy: drop matchers one at a time. Labels vary per
    metric, even on one Droplet: `do.droplets.cpu_utilization` carries only `__name__`, `do_tags`, `resource_urn`
@@ -130,6 +134,9 @@ variable; the next deploy picks it up.
 7. A fleet dot or deep-water family reads "no data" all along: take probe names in `watcher/probe_metrics.json` from
    the live catalog, `GET .../prom/api/v1/label/__name__/values` with a `start` and `end`
    (`python harness/insights_harness.py prom values __name__ --region tor1`), not from the docs (B-033).
+   A family whose `moved_by` differs from its `metric` is seen by one and judged moved by the other: the database
+   is seen by its CPU and moved by `do.databases.load_avg_1m`, because its CPU barely moves under the pg load and
+   stores NaN every other minute (A40, B-035).
 8. A metric name that does not exist fails silently. A query on it returns no series, and an alert rule on it is
    accepted (`201`), listed, can be activated, and never fires; nothing in the rule's status says so (finding A38,
    B-034). `watcher/catalog/metric-names-<region>.txt` is the catalog as listed on 2026-10-09;

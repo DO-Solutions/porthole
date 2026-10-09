@@ -1,7 +1,8 @@
 """The log, trace and managed-resource voyages of design Appendix C: log storm, chain and deep water.
 
 The log storm compares what a tentacle wrote with what Insights returned and gives the A6b verdict when Insights
-has nothing; deep water checks which managed families report within five minutes."""
+has nothing; deep water checks which managed families report within five minutes and which of them rise above
+the level they had in the five minutes before the load."""
 from __future__ import annotations
 
 from datetime import timedelta
@@ -10,7 +11,7 @@ from typing import Any
 from porthole.clock import hhmm, iso, parse_iso
 from porthole.panels_logs import a6b_text
 from porthole.voyages import VoyageFailed
-from porthole.voyages_metrics import finished, tentacle, value
+from porthole.voyages_metrics import finished, tentacle, value, window_mean
 
 
 async def log_storm(ctx: Any) -> dict:
@@ -83,59 +84,111 @@ async def chain(ctx: Any) -> dict:
 
 
 # 4 clients for 60 s left a 1 vCPU managed Postgres between 15 and 20 % CPU (v-aba9cd); the load has to outlast the
-# one-minute series and Insights' lag inside the five-minute watch. 8 clients is the head's cap for pg.
+# two-minute database series and Insights' lag inside the five-minute watch. 8 clients is the head's cap for pg.
 PG_SECONDS, PG_CLIENTS = 180, 8
+# Database metrics arrive every two minutes (A40), so the first sample after the load starts can predate it; the
+# moved check compares with the mean over the five minutes before the load instead.
+BASELINE_S = 300
+PLAN = (("start-pg", "pg", "database"), ("start-fn", "fn", "functions"), ("start-lb", "lb", "load_balancer"))
+
+
+def pg_tentacle(ctx: Any, region: str | None) -> Any:
+    """Where the pg clients run: the voyage's target, else a tentacle in the database's region that the round-trip
+    CPU rule does not watch, else the first tentacle. The clients load the tentacle they run on (69 % CPU with 8
+    clients on a 1 vCPU Droplet, B-035), and on the rule's tentacle that fires the rule and spoils the next round
+    trip's baseline."""
+    if ctx.params.get("target"):
+        return tentacle(ctx, ctx.params["target"])
+    rule = ctx.fleet.rule("round-trip")
+    watched = {rule.target} if rule and rule.target else set()
+    same_region = [t for t in ctx.fleet.tentacles if t.region == region]
+    return next((t for t in same_region + list(ctx.fleet.tentacles) if t.name not in watched), None) or tentacle(
+        ctx, None)
+
+
+def _missing(kind: str, spec: Any) -> bool:
+    return spec is None or (kind == "functions" and not spec.extra.get("url")) or (
+        kind == "load_balancer" and not spec.extra.get("ip"))
+
+
+def _num(v: float | None) -> str:
+    return "none" if v is None else format(v, ".3g")
 
 
 async def deep_water(ctx: Any) -> dict:
-    sea = ctx.fleet.sea
-    plan = [("start-pg", "pg", "database"), ("start-fn", "fn", "functions"), ("start-lb", "lb", "load_balancer")]
+    sea, panels = ctx.fleet.sea, ctx.deps.panels
+    seen_by = {kind: panels.probe_metrics.get(kind) for _, _, kind in PLAN}
+    moved_by = {kind: panels.moved_metrics.get(kind) or seen_by[kind] for _, _, kind in PLAN}
+    usable = [kind for _, _, kind in PLAN if not _missing(kind, sea.get(kind))]
+    if not usable:
+        raise VoyageFailed("the fleet description has no managed Postgres, Function or load balancer")
+    baseline: dict[str, float | None] = {}
+    samples: dict[str, int] = {}
+    async with ctx.step("baseline") as s:
+        for kind in usable:
+            spec = sea[kind]
+            if moved_by[kind] and spec.region:
+                baseline[kind], samples[kind] = await window_mean(ctx, moved_by[kind], spec.name, spec.region,
+                                                                  BASELINE_S, "max")
+        s.data.update(baseline=baseline, samples=samples)
+        s.note(", ".join(f"{k} {moved_by[k]} {_num(baseline.get(k))} ({samples.get(k, 0)} samples)" for k in usable)
+               + f" over the {BASELINE_S // 60} minutes before the load")
     watched: list[tuple[str, Any]] = []
-    for step, scenario, kind in plan:
+    for step, scenario, kind in PLAN:
         async with ctx.step(step) as s:
             spec = sea.get(kind)
-            if spec is None or (kind == "functions" and not spec.extra.get("url")) or (
-                    kind == "load_balancer" and not spec.extra.get("ip")):
+            if kind not in usable:
                 s.skip(f"no {kind.replace('_', ' ')} in the fleet description")
-            target = tentacle(ctx, None).name if scenario == "pg" else "head"
+            target = pg_tentacle(ctx, spec.region).name if scenario == "pg" else "head"
             params = {"pg": {"seconds": PG_SECONDS, "clients": PG_CLIENTS}, "fn": {"seconds": 60, "rps": 5},
                       "lb": {"seconds": 60, "rps": 20}}[scenario]
             run = await ctx.start(target, scenario, params)
             watched.append((kind, spec))
             s.note(f"{run['id']} on {target}")
-    if not watched:
-        raise VoyageFailed("the fleet description has no managed Postgres, Function or load balancer")
     present: dict[str, float | None] = {kind: None for kind, _ in watched}
     moved: dict[str, float | None] = {kind: None for kind, _ in watched}
-    baseline: dict[str, float | None] = {}
+    last: dict[str, float] = {}
     async with ctx.step("watch") as s:
         begin = ctx.now()
         for kind, spec in watched:
-            metric = ctx.deps.panels.probe_metrics.get(kind)
-            if metric:
-                s.artifact("chart", metric, region=spec.region)
+            if moved_by[kind]:
+                s.artifact("chart", moved_by[kind], region=spec.region)
 
         async def families() -> bool:
             for kind, spec in watched:
-                metric = ctx.deps.panels.probe_metrics.get(kind)
-                if not metric or not spec.region or moved[kind] is not None:
+                if not moved_by[kind] or not spec.region or moved[kind] is not None:
                     continue
-                v = await value(ctx, metric, spec.name, spec.region, "max")
+                v = await value(ctx, moved_by[kind], spec.name, spec.region, "max")
+                if present[kind] is None and (v is not None or (seen_by[kind] not in (None, moved_by[kind]) and
+                                                                await value(ctx, seen_by[kind], spec.name,
+                                                                            spec.region, "max") is not None)):
+                    present[kind] = ctx.since(begin)
                 if v is None:
                     continue
-                if present[kind] is None:
-                    present[kind], baseline[kind] = ctx.since(begin), v  # first sample: Insights lags the load
+                last[kind] = v
+                if baseline.get(kind) is None:
+                    baseline[kind] = v  # nothing before the load: the first sample stands in
                 elif v > baseline[kind] * 1.1 + 0.5:
                     moved[kind] = ctx.since(begin)
             return all(v is not None for v in moved.values()) or (ctx.now() - begin).total_seconds() >= 300
 
         await ctx.wait_for(families, 30, lambda _: f"moved so far: {[k for k, v in moved.items() if v is not None]}")
-        metrics = {kind: ctx.deps.panels.probe_metrics.get(kind) for kind in present}
-        s.data.update(baseline=baseline, present_after_s=present, moved_after_s=moved, metrics=metrics)
-        s.note(", ".join(f"{k} ({metrics[k] or 'no probe metric'}): "
-                         + ("no data" if present[k] is None else "moved after " + format(moved[k], ".0f")
-                            + " s" if moved[k] is not None else "data but no change")
-                         for k in present))
+        metrics = {kind: moved_by[kind] for kind in present}
+        s.data.update(baseline=baseline, present_after_s=present, moved_after_s=moved, metrics=metrics,
+                      seen_metrics={kind: seen_by[kind] for kind in present}, last=last)
+
+        def said(k: str) -> str:
+            name = metrics[k] or "no probe metric"
+            if seen_by[k] and seen_by[k] != metrics[k]:
+                name = f"moved by {name}, seen by {seen_by[k]}"
+            if present[k] is None:
+                return f"{k} ({name}): no data"
+            values = f"{_num(baseline.get(k))} before, {_num(last.get(k))} last"
+            if moved[k] is None:
+                return f"{k} ({name}): data but no change ({values})"
+            return f"{k} ({name}): moved after {moved[k]:.0f} s ({values})"
+
+        s.note(", ".join(said(k) for k in present))
     async with ctx.step("summary") as s:
         missing = [k for k, v in present.items() if v is None]
         still = [k for k, v in moved.items() if v is None and present[k] is not None]

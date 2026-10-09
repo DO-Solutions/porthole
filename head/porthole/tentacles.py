@@ -6,15 +6,18 @@ API trace unless they fail, so the trace stays about Insights."""
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 
 from porthole.apitrace import caller, traced_request
-from porthole.clock import iso
+from porthole.clock import iso, parse_iso
 from porthole.config import TentacleSpec
 
 POLL_S = 10.0
+FINISHED_KEPT = 50  # the merged listing shows the 50 runs that ended last, over every target
+EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 ERROR_RECORD_EVERY_S = 60.0
 # what the fleet view keeps of a tentacle's /health; a tentacle older than the memory fields leaves them None
 HEALTH_KEYS = ("uptime_s", "load1", "mem_pct", "mem_avail_mb", "mem_total_mb")
@@ -197,6 +200,9 @@ class FleetPoller:
         if getattr(self.deps, "scenarios", None):
             for run in self.deps.scenarios.head_view():
                 (running if run["status"] == "running" else finished).append(run)
-        finished.sort(key=lambda r: r.get("started_at") or "", reverse=True)
-        running.sort(key=lambda r: r.get("started_at") or "", reverse=True)
-        return {"running": running, "finished": finished[:50]}
+        def at(key: str) -> Any:
+            return lambda r: parse_iso(r.get(key) or r.get("started_at")) or EPOCH
+
+        finished.sort(key=at("ended_at"), reverse=True)
+        running.sort(key=at("started_at"), reverse=True)
+        return {"running": running, "finished": finished[:FINISHED_KEPT]}

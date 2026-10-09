@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import timedelta
 
 from conftest import CAPTAIN, TOKEN, AppEnv, base_env
 
@@ -170,10 +171,81 @@ async def test_alerts_overview(env):
     assert (rt["operator"], rt["critical"], rt["window"], rt["re_alert"], rt["status"]) == (">=", 60, "1m", "30m",
                                                                                            "active")
     assert len(body["rules"]) == 6 and body["errors"] == []
-    assert all(i["rule_name"] == "kraken churn" and i["status"] == "resolved" for i in body["instances"])
+    ours = [i for i in body["instances"] if i["rule_label"] is None]
+    assert len(ours) == 2 and all(i["rule_name"] == "kraken churn" and i["status"] == "resolved" for i in ours)
     hook = next(c for c in body["channels"] if c["type"] == "webhook")
     assert hook["points_here"] and set(hook["statuses"]) == {"bearer_token_status", "signature_status"}
     assert body["write"] is False
+
+
+MIRROR_70, MIRROR_50 = "25cd5489-13f6-430f-a9fd-a9e2676c1ce0", "d4bede3a-5365-4afb-83e7-c0bdfbefc149"
+
+
+def rule_gets(env, rid):
+    return env.insights.requests.count(("GET", f"/v2/insights/alert-rules/{rid}"))
+
+
+async def test_alerts_show_instances_of_rules_the_fleet_does_not_know(env):
+    """A39, 2026-10-09 06:20Z: the team's legacy Monitoring policies are mirrored into Insights as rules with new ids
+    that GET /alert-rules never lists; their instances are in GET /alert-instances and fire on the tentacles. The
+    fake seeds both mirrors with one resolved instance each on tentacle-1 and on a Droplet outside the fleet."""
+    store = env.insights.store
+    store.instances.append(store._instance("0f0f0f0f-0000-4000-8000-000000000000", "do:droplet:600000002", 61.0,
+                                           env.clock.now() - timedelta(minutes=5), None))  # its rule is gone: 404
+    store.fire(MIRROR_70, "do:droplet:600000001", 74.5)  # scripted, so the fake's engine does not resolve it at rest
+    body = (await env.client.get("/api/insights/alerts")).json()
+    assert body["errors"] == []
+    unknown = {r["id"]: r for r in body["unknown_rules"]}
+    assert set(unknown) == {MIRROR_70, MIRROR_50, "0f0f0f0f-0000-4000-8000-000000000000"}
+    m = unknown[MIRROR_50]
+    assert (m["name"], m["operator"], m["critical"], m["window"], m["status"]) == (
+        "CPU Utilization Percent is running high", ">", 50, "30m", "active")
+    assert m["label"] == "not in the rule list (mirrored legacy policy?)" and m["known"] is False
+    assert unknown["0f0f0f0f-0000-4000-8000-000000000000"]["label"] == "rule not found by id"
+    theirs = [i for i in body["instances"] if i["rule_label"]]
+    active = next(i for i in theirs if i["rule_id"] == MIRROR_70)
+    assert (active["rule_name"], active["entity"], active["status"], active["severity"]) == (
+        "CPU is running high", "tentacle-1", "active", "critical")
+    assert active["rule_label"] == "not in the rule list (mirrored legacy policy?)"
+    outside = next(i for i in theirs if i["rule_id"] == MIRROR_50 and i["entity"] != "tentacle-1")
+    assert outside["entity"] == "a resource outside the fleet" and outside["resource_urn"] is None
+    assert body["instances"][0]["id"] == active["id"]  # newest first, ours and theirs together
+    assert rule_gets(env, MIRROR_70) == rule_gets(env, MIRROR_50) == 1
+    assert env.insights.requests.count(("GET", "/v2/insights/alert-rules")) == 1
+    env.deps.cache.invalidate("alerts")
+    again = (await env.client.get("/api/insights/alerts")).json()
+    assert {r["id"] for r in again["unknown_rules"]} == set(unknown)
+    assert rule_gets(env, MIRROR_70) == rule_gets(env, MIRROR_50) == 1  # looked up once, then cached
+    assert rule_gets(env, "0f0f0f0f-0000-4000-8000-000000000000") == 1
+    assert env.insights.requests.count(("GET", "/v2/insights/alert-rules")) == 1
+
+
+async def test_a_listed_rule_that_is_not_ours_is_labeled_so_and_a_failed_lookup_is_retried(env, monkeypatch):
+    from porthole.panels_alerts import LISTED_ELSEWHERE
+    store = env.insights.store
+    rid = "1e1e1e1e-0000-4000-8000-000000000000"
+    store.rules[rid] = {**store.rules[MIRROR_70], "id": rid}
+    store.instances.append(store._instance(rid, "do:droplet:600000001", 80.0, env.clock.now(), None))
+    real = env.deps.panels.call
+    failing = {"on": True}
+
+    async def call(name, method, *args, **kwargs):
+        if method == "list_rules":
+            if failing["on"]:
+                from insights_harness import InsightsError
+                raise InsightsError(503, "busy", "GET /v2/insights/alert-rules")
+            return {"alert_rules": [{"id": rid}]}, [], 0.0
+        return await real(name, method, *args, **kwargs)
+
+    monkeypatch.setattr(env.deps.panels, "call", call)
+    body = (await env.client.get("/api/insights/alerts")).json()
+    assert any(e["what"] == "the rule list" for e in body["errors"])
+    assert {r["label"] for r in body["unknown_rules"] if r["id"] == rid} == {"not a fleet rule (lookup failed)"}
+    failing["on"] = False
+    env.deps.cache.invalidate("alerts")
+    body = (await env.client.get("/api/insights/alerts")).json()
+    assert next(r for r in body["unknown_rules"] if r["id"] == rid)["label"] == LISTED_ELSEWHERE
+    assert next(r for r in body["unknown_rules"] if r["id"] == MIRROR_50)["label"].startswith("not in the rule list")
 
 
 async def test_rule_status_needs_write_mode_and_a_fleet_rule():

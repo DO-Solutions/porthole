@@ -74,10 +74,15 @@ CATALOG: dict[str, VoyageSpec] = {v.name: v for v in (
         chain, TARGET, ("ok", "failed", "first_trace_id")),
     VoyageSpec(
         "deep-water", "Deep water", "M4",
-        "Loads the managed Postgres, the Function and the load balancer for a minute and checks which of their "
-        "metric families Insights reports within five minutes, and which of them move with the load.",
-        (StepSpec("start-pg", "pg: 4 clients for 60 s", 60), StepSpec("start-fn", "fn: 5 calls a second for 60 s", 60),
+        "Loads the managed Postgres for three minutes and the Function and the load balancer for one, then checks "
+        "which of their metric families Insights reports within five minutes and which rise above their level of "
+        "the five minutes before. The database counts as moved by its load average. The pg clients run on the "
+        "target tentacle, or by default on one the round-trip CPU rule does not watch, because they load the "
+        "tentacle's own CPU too.",
+        (StepSpec("baseline", "each family over the 5 minutes before the load", 120),
+         StepSpec("start-pg", "pg: 8 clients for 180 s, off the round-trip rule's tentacle", 60),
+         StepSpec("start-fn", "fn: 5 calls a second for 60 s", 60),
          StepSpec("start-lb", "lb: 20 calls a second for 60 s", 60),
          StepSpec("watch", "check each family for 5 minutes", 360), StepSpec("summary", "which families reported", 30)),
-        deep_water, {}, ("reported_after_s", "moved_after_s", "missing")),
+        deep_water, TARGET, ("reported_after_s", "moved_after_s", "missing")),
 )}

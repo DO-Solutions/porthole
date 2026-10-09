@@ -22,6 +22,8 @@ from porthole.tentacles import TentacleError
 
 HEAD_RUNS_KEPT = 200
 HEAD_CONCURRENCY = 8
+# how a run ended, from its status, as the tentacle reports it
+REASONS = {"finished": "completed", "stopped": "stopped", "failed": "error"}
 
 
 @dataclass(frozen=True)
@@ -109,8 +111,9 @@ class HeadRun:
 
     def view(self, now: datetime) -> dict:
         end = self.ended_at or now
-        return {"id": self.id, "name": self.name, "status": self.status, "params": self.params,
-                "started_at": iso(self.started_at, millis=True), "ended_at": iso(self.ended_at, millis=True),
+        return {"id": self.id, "name": self.name, "status": self.status, "reason": REASONS.get(self.status),
+                "params": self.params, "started_at": iso(self.started_at, millis=True),
+                "ended_at": iso(self.ended_at, millis=True),
                 "elapsed_s": round((end - self.started_at).total_seconds(), 3), "result": self.result,
                 "error": self.error, "target": "head"}
 

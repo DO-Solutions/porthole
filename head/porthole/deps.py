@@ -173,7 +173,7 @@ def warn_unknown_metrics(deps: Deps) -> None:
     """One warning per probe or voyage metric that a configured region's committed catalog lacks (B-034)."""
     from porthole import metric_catalog, voyages_metrics
 
-    names = [*deps.panels.probe_metrics.values(), *voyages_metrics.METRICS]
+    names = [*deps.panels.probe_metrics.values(), *deps.panels.moved_metrics.values(), *voyages_metrics.METRICS]
     catalog = metric_catalog.load(deps.watcher_dir)
     for name, regions in metric_catalog.missing(names, deps.settings.fleet, catalog).items():
         deps.log.warn(f"metric {name} is not in the committed catalog for {', '.join(regions)} (watcher/catalog): "

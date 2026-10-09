@@ -33,7 +33,18 @@ maintainers; the rest waits for a build that touches the same code. Bugs observe
   timestamps, full floats). Rounding values to six significant digits would cut it by about a third at the cost of
   the table view's digits; the design's budget allows the current size, so it was left.
 
-- **Voyage state does not survive a deploy.** Observed 2026-10-09 04:32Z: a churn voyage started on the outgoing
-  instance vanished when the new deployment took over (in-memory state, design section 3.6). The burn it started on the
-  tentacle kept running until its own timeout. Options: persist voyage runs to the database the fleet already has, or
-  refuse to start a voyage while a deployment is in progress and say so on the page.
+- **The webhook delivery log and the voyage records do not survive a deploy.** Both live in the head's memory
+  (design section 3.6). On 2026-10-09 a churn voyage vanished mid-run when a new deployment took over at 04:32Z (its
+  burn on the tentacle ran on to its own timeout), and two redeploys that night lost the deliveries the round trips
+  had captured, among them the WARNING-then-CRITICAL sequence that would settle A21. A SQLite file would not help:
+  the app's disk is ephemeral and a deploy replaces it. The fleet's Spaces bucket (`kraken-<6 hex>` in tor1, infra
+  step 10) is the store. Design: the head writes one JSON object per finished voyage run
+  (`voyages/<run id>.json`, the run view) and per accepted delivery (`hooks/<yyyy-mm-dd>/<delivery id>.json`, the
+  redacted form the delivery log already keeps, never the raw `Authorization` header), each with one SigV4-signed
+  PUT the way `infra/steps/spaces.py` signs its bucket call. Writes run off the request path, and a failed write is
+  logged and never fails the voyage or the webhook. On start the head lists the last two days of keys and loads the
+  newest 50 runs and 200 deliveries, so `/api/voyages` and `/api/hooks/deliveries` look the same after a deploy.
+  It needs a Spaces key of its own (`PORTHOLE_SPACES_KEY`, `PORTHOLE_SPACES_SECRET`, `PORTHOLE_SPACES_BUCKET`),
+  scoped to the bucket if the keys API's per-bucket grant works (B-016 verified only the full-access one). A
+  voyage still sailing during a deploy is lost either way; the start route could refuse while a deployment is in
+  progress, which needs the App Platform deployments call.
