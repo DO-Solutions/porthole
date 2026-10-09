@@ -251,7 +251,7 @@ wontfix. Never write an observation nobody made.
 - status: fixed in `fix(head): stop pinning queries on resource_region_slug`; no query matches on the label, the region stays the path segment, and "both" still asks each region separately and tags its series. Not yet re-run on the live fleet
 
 ## B-027  Alert payload is a CloudEvent and `resource_url` points at the Droplet's legacy tab     (open, docs)
-- when: 2026-10-09T04:12:01Z   where: `POST /hooks/insights` from 162.243.188.66, `User-Agent: Go-http-client/1.1`   finding: A14, A16
+- when: 2026-10-09T04:12:01Z   where: `POST /hooks/insights` from one fixed DigitalOcean-owned IPv4 (the same sender on every delivery so far; the address itself is kept out of this public repo), `User-Agent: Go-http-client/1.1`   finding: A14, A16
 - request we made / received: a 817-byte body, `Content-Type: application/cloudevents+json`, `specversion` 1.0, `type` `com.digitalocean.observability.alert.triggered`, `subject` the resource URN, `data` with `alert_id`, `alert_rule_id`, `alert_rule_name`, `state` (Triggered / Recovered), `severity`, `metric`, `resource_urn`, `resource_name`, `resource_url`, `value`, `labels`
 - response: 200 from the head
 - expected: a documented payload schema
