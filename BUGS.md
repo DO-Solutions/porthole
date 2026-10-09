@@ -6,14 +6,14 @@ design could not confirm a fact; they move to open once someone observes the beh
 wontfix. Never write an observation nobody made.
 
 ```
-## B-000  Alert webhook carries no signature header     (open)
+## B-000  Alert webhook carries no signature header     (resolved 2026-10-09)
 - when: 2026-10-12T14:03:11Z   where: head /hooks/insights   finding: A14 follow-up
 - request we made / received: POST /hooks/insights, headers [user-agent, content-type, authorization(Bearer), x-kraken], 1,212 bytes
 - response: 200
 - expected: a signature header, per "Sign webhook payload" in manage-metrics-alerts (quote)
 - observed: no header containing sign/signature/hmac/digest; body excerpt {...}
 - reproduce: run voyage alert-round-trip; harness: `insights_harness.py channels get <id>`
-- status: open -> reported -> fixed / wontfix
+- status: resolved 2026-10-09T04:12Z by the first real delivery: header `x-digitalocean-signature` with the Stripe form `t=<unix>,v1=<hex>` (HMAC-SHA256 over `"<t>.<raw body>"` with the channel secret); the head's `stripe-v1` scheme verified it. Also present: `digitalocean-event-name: observability.alert.triggered`, `Content-Type: application/cloudevents+json`. Undocumented; reported as a docs gap.
 ```
 
 ## B-001  Insights tab URLs are not documented     (verified)
@@ -249,3 +249,49 @@ wontfix. Never write an observation nobody made.
 - observed: `do_droplets_cpu_utilization{resource_urn="do:droplet:607483182"}` in the same region returned 100. That series carries only `__name__`, `do_tags`, `resource_urn` and `service_name`; other series of the same Droplet do carry `resource_region_slug`, so the label is not uniform per metric. The region matcher was redundant: the path segment `/query/{region}/` already picks the region. Every query the head wrote carried it: the builder's base matchers (so voyages, the Brain's tools and the Metrics page), the per-family fleet probes, and the ten queries in `watcher/dashboards/krakens-eye.queries.json`
 - reproduce: the fake Insights now gives `do_droplets_cpu_utilization` only the A22 labels while the Droplet's other series keep `resource_region_slug`; with the region matcher put back in `promql._select`, the churn, alert-round-trip and two-seas voyage tests, the Brain's slow-tentacle test and the range panels fail, and the family-probe and dashboard tests fail with the matcher back in `panels.py` and the sidecar
 - status: fixed in `fix(head): stop pinning queries on resource_region_slug`; no query matches on the label, the region stays the path segment, and "both" still asks each region separately and tags its series. Not yet re-run on the live fleet
+
+## B-027  Alert payload is a CloudEvent and `resource_url` points at the Droplet's legacy tab     (open, docs)
+- when: 2026-10-09T04:12:01Z   where: `POST /hooks/insights` from 162.243.188.66, `User-Agent: Go-http-client/1.1`   finding: A14, A16
+- request we made / received: a 817-byte body, `Content-Type: application/cloudevents+json`, `specversion` 1.0, `type` `com.digitalocean.observability.alert.triggered`, `subject` the resource URN, `data` with `alert_id`, `alert_rule_id`, `alert_rule_name`, `state` (Triggered / Recovered), `severity`, `metric`, `resource_urn`, `resource_name`, `resource_url`, `value`, `labels`
+- response: 200 from the head
+- expected: a documented payload schema
+- observed: none is documented; `data.resource_url` is `https://cloud.digitalocean.com/droplets/<id>/insights?i=<context>`, the Droplet page's legacy Monitoring tab, not the Insights product; `data.resource_name` is present here although the metric series for the same Droplet carry no `resource_name` label (B-023)
+- reproduce: run the alert round trip voyage; open the delivery on the Alerts page
+- status: open; the head shows the raw JSON and extracts the fields above
+
+## B-028  An instance reported CRITICAL at a value below the critical threshold     (to verify)
+- when: 2026-10-09T04:12:00Z   where: `GET /v2/insights/alert-instances?rule_id=<kraken churn>` and the webhook   finding: A21
+- request we made / received: rule thresholds `>= 40` warning, `>= 60` critical, window 1 m
+- response: `severity: SEVERITY_CRITICAL`, `value: 49.31`
+- expected: WARNING at 49.3, or a `value` that is the one that crossed 60
+- observed: critical with a value between the two thresholds; the same pair appeared in the webhook
+- reproduce: the alert round trip voyage records `value` and `severity` for every state change
+- status: to verify with the overnight runs (the first state change of a burn is the one to compare)
+
+## B-029  `do_tags` is an undocumented JSON-string label     (open, docs)
+- when: 2026-10-09T04:45Z   where: `GET /v2/insights/query/tor1/prom/api/v1/series`   finding: A23
+- request we made / received: `match[]={resource_urn="do:droplet:607483182"}`
+- response: series with `do_tags: ["insights-demo","kraken-tentacle","<project id>","<project id>"]` (a JSON array encoded as one label value)
+- expected: a documented label, or one value per tag
+- observed: nothing in the docs mentions it; a JSON string inside a label cannot be matched with equality (a regex such as `do_tags=~".*\"kraken-tentacle\".*"` works); the resource's project ids are included
+- reproduce: any series of a tagged Droplet
+- status: open
+
+## B-030  The App Platform app itself is not visible in Insights after an hour     (to verify)
+- when: 2026-10-09T05:00Z (app deployed 04:03Z)   where: `/api/fleet` → `head.seen_in_insights`, an instant query on `do.apps.app_requests_per_second{resource_urn="do:app:<id>"}` in tor1   finding: A28
+- request we made / received: the fleet probe for the head's URN
+- response: no series
+- expected: the app's `do.apps.app_*` series within minutes, like the Droplets, the load balancer, the database and the cluster
+- observed: nothing after ~1 h; another team's app in the same region does have `do_apps_app_*` series
+- reproduce: `/api/fleet` on a fresh deployment
+- status: to verify (delay vs a missing opt-in)
+
+## B-031  Ingestion and alert latency (characteristic, not a bug)     (observed)
+- when: 2026-10-09 04:07Z–04:26Z and 04:57Z–05:12Z   where: churn and alert round trip voyages   finding: A29
+- request we made / received: CPU burns on kraken-tentacle-1; instant queries every 30 s; alert instances by rule id
+- response: CPU visible in the API 243 s and 184 s after the burn started; alert triggered 4 min 35 s after the burn started (1-minute window), resolved 8 min 35 s after it stopped; webhooks 1.5 s and 0.4 s after the state change
+- expected: documented latency figures
+- observed: none are documented; state changes land on whole minutes
+- reproduce: any churn or alert round trip run; the timelines record every timestamp
+- status: observed; keep adding runs to the table in the report
+
