@@ -99,7 +99,7 @@ Environment variables only. `head/.env.example` lists each one with a comment.
 | `OTEL_EXPORTER_OTLP_HEADERS` | secret | | headers for the OTLP exporters |
 | `OTEL_SERVICE_NAME` | general | `porthole` | `service.name` on spans and logs |
 | `PORTHOLE_LOG_LEVEL` | general | `INFO` | `DEBUG`, `INFO`, `WARN` or `ERROR` |
-| `PORTHOLE_PORT` | general | `8080` | port for `python -m porthole.main` |
+| `PORTHOLE_PORT` | general | `8080` | listen port for `python -m porthole.main`, run from `head/`; the container always listens on 8080 |
 | `PORTHOLE_VERSION` | general | | version shown in `/healthz` |
 
 Missing values never crash the head. It starts in a degraded mode, logs one line per problem, lists the problems

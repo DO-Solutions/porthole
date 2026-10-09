@@ -118,9 +118,17 @@ async def test_a_second_abort_during_cleanup_does_not_lock_the_engine(env, monke
         return await real_stop(self, run_id)
 
     monkeypatch.setattr(TentacleClient, "stop", slow_stop)
+
+    async def spin_until(done) -> None:
+        for _ in range(2000):
+            if done():
+                return
+            await asyncio.sleep(0)
+        raise AssertionError("the abort request did not get through")
+
     first = asyncio.create_task(env.client.post(f"/api/voyages/{run.id}/abort", headers=env.captain()))
-    await env.settle()
-    assert run.status == "aborted" and not run.task.done()  # cleanup is waiting on the slow stop
+    await spin_until(lambda: run.status == "aborted")
+    assert not run.task.done()  # cleanup is waiting on the slow stop
     second = asyncio.create_task(env.client.post(f"/api/voyages/{run.id}/abort", headers=env.captain()))
     await env.settle()
     await env.advance(10)

@@ -68,7 +68,8 @@ VARIABLES: tuple[Var, ...] = (
     Var("OTEL_EXPORTER_OTLP_HEADERS", "SECRET", "", "headers for the OTLP exporters, k=v pairs separated by commas"),
     Var("OTEL_SERVICE_NAME", "GENERAL", "porthole", "service.name on spans and log records"),
     Var("PORTHOLE_LOG_LEVEL", "GENERAL", "INFO", "DEBUG, INFO, WARN or ERROR"),
-    Var("PORTHOLE_PORT", "GENERAL", "8080", "listen port when started with python -m porthole.main"),
+    Var("PORTHOLE_PORT", "GENERAL", "8080",
+        "listen port when started with python -m porthole.main from head/; the container always listens on 8080"),
     Var("PORTHOLE_VERSION", "GENERAL", "", "version shown in /healthz; the Dockerfile bakes the git SHA when given"),
 )
 

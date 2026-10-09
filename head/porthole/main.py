@@ -4,9 +4,11 @@ create_app() takes optional transports and a clock so tests and the local runner
 `app` is created on first access so importing this module has no side effects."""
 from __future__ import annotations
 
+import sys
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -16,7 +18,11 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from insights_harness import InsightsError, excerpt
+try:
+    from insights_harness import InsightsError, excerpt
+except ModuleNotFoundError:  # a checkout rather than the container: the harness sits next to head/
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "harness"))
+    from insights_harness import InsightsError, excerpt
 from porthole import routes
 from porthole.cache import BudgetExhausted
 from porthole.clock import Clock

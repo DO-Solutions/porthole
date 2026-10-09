@@ -1,7 +1,11 @@
 """GET /healthz: shape, version, and degraded mode without a token or fleet."""
 from __future__ import annotations
 
-from conftest import AppEnv, base_env
+import os
+import subprocess
+import sys
+
+from conftest import HEAD, AppEnv, base_env
 
 
 async def test_healthz_shape(env):
@@ -39,6 +43,15 @@ async def test_degraded_mode_without_token_still_answers():
         assert (await e.client.get("/api/config")).status_code == 200
         lines = e.log_lines()
         assert any(line["body"].startswith("degraded: DIGITALOCEAN_TOKEN") for line in lines)
+
+
+def test_the_module_entry_point_imports_from_a_checkout():
+    """The README and .env.example name `python -m porthole.main`; found by the wringer failing outside the
+    container, where the harness is not on the path."""
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    r = subprocess.run([sys.executable, "-c", "import porthole.main"], cwd=HEAD, env=env, capture_output=True,
+                       text=True, timeout=60)
+    assert r.returncode == 0, r.stderr[-800:]
 
 
 async def test_healthz_is_not_traced(env):
