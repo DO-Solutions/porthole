@@ -19,7 +19,8 @@ def _find_registry(ctx: Context) -> dict | None:
     listing = ctx.api.get("/v2/registries", missing_ok=True)
     registries = (listing or {}).get("registries") or []
     if registries:
-        preferred = [r for r in registries if r.get("name") == NAME] or [r for r in registries if "poseidon" in r.get("name", "")]
+        preferred = ([r for r in registries if r.get("name") == NAME]
+                     or [r for r in registries if "poseidon" in r.get("name", "")])
         return preferred[0] if preferred else registries[0]
     answer = ctx.api.get("/v2/registry", missing_ok=True)
     return (answer or {}).get("registry")
