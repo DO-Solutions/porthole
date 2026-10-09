@@ -15,6 +15,11 @@ async def own_traces(request: Request, limit: int = Query(50, ge=1, le=50)) -> d
             "service_name": deps.settings.service_name}
 
 
+@router.get("/api/traces/chains")
+async def chains(request: Request, range: str = "24h") -> dict:
+    return await request.app.state.deps.log_panels.chains(range)
+
+
 @router.get("/api/logs/own")
 async def own_logs(request: Request, limit: int = Query(300, ge=1, le=300)) -> dict:
     deps = request.app.state.deps

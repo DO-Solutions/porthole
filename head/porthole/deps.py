@@ -123,4 +123,15 @@ class Deps:
 def build_services(deps: Deps) -> None:
     """Attach the services of later milestones. Imports are local so modules can import deps types freely."""
     from porthole.deeplinks import DeepLinks
+    from porthole.panels import Panels
+    from porthole.panels_alerts import AlertPanels
+    from porthole.panels_logs import LogPanels
+    from porthole.tentacles import FleetPoller
+
     deps.links = DeepLinks(deps.settings.fleet, deps.settings.deeplink_overrides)
+    deps.panels = Panels(deps)
+    deps.alert_panels = AlertPanels(deps.panels)
+    deps.log_panels = LogPanels(deps.panels)
+    deps.panels_caps = deps.panels.caps
+    deps.poller = FleetPoller(deps)
+    deps.on_start(lambda: deps.spawn(deps.poller.run(), "fleet-poller"))

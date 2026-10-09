@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Porthole: Metrics</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/skin.css">
+  <link rel="stylesheet" href="/static/vendor/uplot/uPlot.min.css">
+  <link rel="stylesheet" href="/static/css/porthole.css">
+  <script src="/static/vendor/uplot/uPlot.iife.min.js" defer></script>
+  <script type="module" src="/static/js/pages/metrics.js"></script>
+</head>
+<body>
+  <header id="frame-top"></header>
+  <main>
+    <section class="card span-12" aria-labelledby="metrics-title">
+      <h1 id="metrics-title">Metrics</h1>
+      <p class="explainer">Insights stores metrics at one-minute resolution and serves them through a Prometheus-compatible API, one region at a time. Names are written with dots when you ask (do.droplets.cpu_utilization) and come back with underscores in the results. The chart below is a range query for the region you picked. Choose 'both' to see Toronto and Sydney side by side; Porthole asks each region separately because the API does not add regions together.</p>
+      <div class="row" id="metrics-filters">
+        <label class="field"><span class="label">time range</span><select id="range"></select></label>
+        <label class="field"><span class="label">refresh</span><select id="refresh">
+          <option value="0">off</option><option value="15">15 s</option><option value="30">30 s</option><option value="60">60 s</option>
+        </select></label>
+        <span class="small dim" id="metrics-status"></span>
+      </div>
+    </section>
+    <section class="card span-3" aria-labelledby="catalog-title">
+      <div class="card-head"><h2 id="catalog-title">Catalog</h2><span class="small dim" id="catalog-count"></span></div>
+      <p class="small dim">Grouped by family from label/__name__/values with a 30-minute window. Names show dotted; hover for the underscored name Insights returns (finding A4). Click a metric to add a chart (at most 6).</p>
+      <div class="catalog" id="catalog"><p class="empty">loading the catalog...</p></div>
+    </section>
+    <section class="span-9" aria-label="charts">
+      <div class="chart-cards" id="charts"></div>
+    </section>
+  </main>
+  <footer id="frame-drawer"></footer>
+</body>
+</html>

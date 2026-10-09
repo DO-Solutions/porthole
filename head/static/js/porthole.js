@@ -177,13 +177,51 @@ export function errorText(e) {
 
 // --- fleet colors ----------------------------------------------------------------------------------
 export function entity(cfg, name) { return (cfg.entities || []).find((e) => e.name === name || e.display === name); }
-export function colorVar(slot) { return slot ? `var(--fleet-${slot})` : "var(--dim)"; }
+export function colorVar(slot) { return slot ? `var(--slot-${slot})` : "var(--dim)"; }
 export function swatch(slot) { return el("span", { class: "swatch", vars: { "--swatch": colorVar(slot) } }); }
 
 // --- copy to clipboard -------------------------------------------------------------------------------
 export async function copy(text, what = "Copied") {
   try { await navigator.clipboard.writeText(text); toast(`${what} to the clipboard.`); }
   catch { toast("The browser did not allow copying; select the text instead.", "attention"); }
+}
+
+// --- JSON tree and voyage timeline (Alerts, Stir, Brain) ------------------------------------------------
+export function jsonTree(value, key = null, depth = 0) {
+  const label = key === null ? [] : [el("span", { class: "k" }, `${key}: `)];
+  if (value === null || typeof value !== "object") {
+    const cls = typeof value === "string" ? "s" : "n";
+    return el("div", {}, ...label, el("span", { class: cls }, JSON.stringify(value)));
+  }
+  const entries = Array.isArray(value) ? value.map((v, i) => [i, v]) : Object.entries(value);
+  const box = el("details", { open: depth < 2 ? true : null },
+    el("summary", {}, ...label, Array.isArray(value) ? `[${entries.length}]` : `{${entries.length}}`));
+  entries.forEach(([k, v]) => box.append(jsonTree(v, k, depth + 1)));
+  return depth === 0 ? el("div", { class: "json-tree" }, box) : box;
+}
+
+export function renderTimeline(container, run) {
+  clear(container);
+  if (!run) return;
+  const status = el("span", { class: `status ${run.status}` }, run.status);
+  container.append(el("p", {}, el("strong", {}, `${run.voyage} ${run.id}`), ` started ${fmtTime(run.started_at)} `, status,
+    run.ended_at ? ` ended ${fmtTime(run.ended_at)}` : ""));
+  const list = el("ol", { class: "timeline" });
+  for (const step of run.steps || []) {
+    const links = (step.artifacts || []).map((a) => a.kind === "chart"
+      ? el("a", { href: `/metrics?metric=${encodeURIComponent(a.ref)}${a.region ? `&region=${a.region}` : ""}` }, "see chart")
+      : a.kind === "api_call" ? el("a", { href: `/api?call=${encodeURIComponent(a.ref)}` }, "API call")
+        : a.kind === "delivery" ? el("a", { href: "/alerts" }, "delivery") : el("span", { class: "small dim" }, a.ref));
+    list.append(el("li", { class: step.status }, el("span", { class: `status ${step.status}` }, step.status.replace("_", " ")),
+      el("span", { class: "dim" }, fmtTime(step.started_at)), el("span", {}, step.name),
+      el("span", { class: "text" }, step.text || step.title || ""), el("span", { class: "row" }, links)));
+  }
+  container.append(list);
+  const summary = Object.entries(run.summary || {}).filter(([, v]) => v !== null && v !== undefined);
+  if (summary.length) {
+    container.append(el("dl", { class: "kv" }, summary.flatMap(([k, v]) => [el("dt", {}, k.replaceAll("_", " ")),
+      el("dd", {}, typeof v === "object" ? JSON.stringify(v) : String(v))])));
+  }
 }
 
 // --- one API call in detail (drawer and API page) -----------------------------------------------------

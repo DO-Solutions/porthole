@@ -1,0 +1,13 @@
+{
+  "description": "One metric per resource family for the fleet dots on the Bridge. The head first asks count by (resource_urn) ({resource_urn=~\"...\"}) with no metric name; if Insights rejects that, it switches to these metrics, one query per family and region. Entries with verified false are guesses from the family list in the facts pack: replace them with real names from label/__name__/values once the fleet reports, and note it in BUGS.md.",
+  "families": {
+    "tentacle": {"metric": "do.droplets.cpu_utilization", "verified": true, "source": "facts pack, probes in nyc3"},
+    "app": {"metric": "do.apps.app_cpu_utilization", "verified": true, "source": "facts pack, tor1 catalog"},
+    "load_balancer": {"metric": "do.load_balancers.connections_current", "verified": false},
+    "database": {"metric": "do.databases.cpu_utilization", "verified": false},
+    "kubernetes": {"metric": "do.kubernetes.node_cpu_utilization", "verified": false},
+    "functions": {"metric": "do.serverless.invocations", "verified": false},
+    "spaces": {"metric": "do.spaces.requests", "verified": false},
+    "registry": {"metric": "do.container_registry.storage_used_bytes", "verified": false}
+  }
+}

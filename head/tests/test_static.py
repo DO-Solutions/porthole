@@ -204,3 +204,23 @@ def test_page_files_reference_porthole_js_through_their_module():
         assert 'from "../porthole.js"' in js, module
         assert Path(module).stem in ("bridge", "stir", "metrics", "dashboards", "alerts", "logs", "traces", "api",
                                      "brain")
+
+
+def test_slot_layer_matches_the_config_palette():
+    from porthole.config import SLOT_PALETTE
+    css = (STATIC / "css" / "porthole.css").read_text()
+    mapped = dict(re.findall(r"--slot-(\d)\s*:\s*var\(--fleet-(\d)\)", css))
+    assert [int(mapped[str(i)]) for i in range(1, 9)] == list(SLOT_PALETTE)
+    assert sorted(SLOT_PALETTE) == list(range(1, 9))  # a permutation: zero hex changes
+
+
+async def test_config_palette_follows_the_slot_order(env):
+    from porthole.config import SLOT_PALETTE
+    skin = json.loads((REPO / "watcher" / "skin" / "kraken.skin.json").read_text())["fleet"]
+    palette = (await env.client.get("/api/config")).json()["palette"]
+    assert palette == {str(i + 1): skin[idx - 1] for i, idx in enumerate(SLOT_PALETTE)}
+
+
+def test_static_readme_records_the_validator_run():
+    text = (STATIC / "README.md").read_text()
+    assert "## Palette validator" in text and "#081f1e" in text and "## Slot order" in text

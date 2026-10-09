@@ -1,0 +1,247 @@
+"""Panels against the fake Insights: normalization, both regions, catalog cache, budget, alerts, logs, A6b."""
+from __future__ import annotations
+
+import asyncio
+import json
+
+from conftest import CAPTAIN, TOKEN, AppEnv, base_env
+
+
+def range_params(**kw):
+    return {"region": "tor1", "metric": "do.droplets.cpu_utilization", "agg": "avg", "range": "30m", **kw}
+
+
+def upstream(env, part: str = "") -> int:
+    return len([r for r in env.insights.requests if part in r[1]])
+
+
+async def test_range_normalization_gaps_and_step(env):
+    body = (await env.client.get("/api/insights/range", params=range_params(region="syd1", range="1h"))).json()
+    assert body["unit"] == "percent" and body["step"] == 60 and body["end"] - body["start"] == 3600
+    (series,) = body["series"]
+    assert (series["entity"], series["display"], series["region"], series["slot"]) == \
+        ("kraken-tentacle-3", "tentacle-3", "syd1", 3)
+    stamps = [p[0] for p in series["points"]]
+    assert all(t % 60 == 0 and body["start"] <= t <= body["end"] for t in stamps)
+    gaps = [t for t in range(body["start"], body["end"] + 1, 60) if t not in stamps]
+    assert gaps and all((t // 60) % 23 == 0 for t in gaps)  # the fake drops these samples; no zeros filled in
+    coarse = (await env.client.get("/api/insights/range", params=range_params(step="120s"))).json()
+    assert coarse["step"] == 120
+    assert all(b[0] - a[0] == 120 for s in coarse["series"] for a, b in zip(s["points"], s["points"][1:], strict=False))
+
+
+async def test_both_regions_are_asked_separately_and_never_summed(env):
+    body = (await env.client.get("/api/insights/range", params=range_params(region="both"))).json()
+    assert set(body["regions"]) == {"tor1", "syd1"}
+    assert all(len(r["calls"]) == 1 and r["error"] is None for r in body["regions"].values())
+    assert 'resource_region_slug="syd1"' in body["regions"]["syd1"]["promql"]
+    by = {(s["entity"], s["region"]) for s in body["series"]}
+    assert by == {("kraken-tentacle-1", "tor1"), ("kraken-tentacle-2", "tor1"), ("kraken-tentacle-3", "syd1")}
+    assert all(s["labels"] == {"resource_name": s["entity"]} for s in body["series"])
+
+
+async def test_bad_region_and_builder_rejections(env):
+    r = await env.client.get("/api/insights/range", params=range_params(region="ams3"))
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_region"
+    r = await env.client.get("/api/insights/range", params=range_params(filters="resource_name=not-ours"))
+    assert r.status_code == 400 and "not in this fleet" in r.json()["error"]["message"]
+    r = await env.client.get("/api/insights/range", params=range_params(metric="do_droplets_cpu_utilization"))
+    assert r.status_code == 400 and "dotted" in r.json()["error"]["message"]
+
+
+async def test_catalog_grouped_and_cached_for_five_minutes(env):
+    first = (await env.client.get("/api/insights/catalog", params={"region": "tor1"})).json()
+    fam = first["families"]["do.droplets"]
+    assert {"dotted": "do.droplets.cpu_utilization", "underscored": "do_droplets_cpu_utilization"} in fam
+    assert "do.load_balancers" in first["families"] and first["window"] == "30m" and first["cached"] is False
+    n = upstream(env, "label/__name__/values")
+    await env.clock.advance(299)
+    again = (await env.client.get("/api/insights/catalog", params={"region": "tor1"})).json()
+    assert again["cached"] is True and upstream(env, "label/__name__/values") == n
+    await env.clock.advance(2)
+    assert (await env.client.get("/api/insights/catalog", params={"region": "tor1"})).json()["cached"] is False
+    both = (await env.client.get("/api/insights/catalog", params={"region": "both"})).json()
+    assert set(both["regions"]) == {"tor1", "syd1"}
+
+
+async def test_single_flight_for_concurrent_misses(env):
+    n = upstream(env, "query_range")
+    results = await asyncio.gather(*(env.client.get("/api/insights/range", params=range_params(range="3h"))
+                                     for _ in range(5)))
+    assert all(r.status_code == 200 for r in results)
+    assert upstream(env, "query_range") == n + 1
+
+
+async def test_budget_exhaustion_serves_stale_with_retry_in():
+    async with AppEnv(base_env(PORTHOLE_UPSTREAM_BUDGET_PER_MIN="6")) as e:
+        fresh = (await e.client.get("/api/insights/range", params=range_params(range="1h"))).json()
+        assert fresh["stale"] is False
+        while e.deps.budget.remaining():
+            e.deps.budget.take()
+        await e.clock.advance(25)  # past the 20 s TTL, still inside the budget minute
+        stale = (await e.client.get("/api/insights/range", params=range_params(range="1h"))).json()
+        assert stale["stale"] is True and stale["retry_in"] >= 1
+        assert stale["series"] == fresh["series"]
+        cold = (await e.client.get("/api/insights/range", params=range_params(range="6h"))).json()
+        assert cold["series"] == [] and cold["regions"]["tor1"]["error"]["status"] == 503
+        assert "retry in" in cold["regions"]["tor1"]["error"]["message"]
+
+
+async def test_captain_promql_within_caps(env):
+    h = env.captain()
+    q = {"region": "both", "query": "max by (resource_name) (do.droplets.load_1)", "range": "2h", "step": "60s"}
+    r = await env.client.post("/api/insights/promql", json=q, headers=h)
+    assert r.status_code == 200 and set(r.json()["regions"]) == {"tor1", "syd1"} and r.json()["series"]
+    for bad in ({**q, "query": "x" * 501}, {**q, "range": "25h"}, {**q, "step": "30s"}):
+        r = await env.client.post("/api/insights/promql", json=bad, headers=h)
+        assert r.status_code == 400, bad
+    assert (await env.client.post("/api/insights/promql", json=q)).status_code == 401
+
+
+async def test_instant_query(env):
+    body = (await env.client.get("/api/insights/query", params={"region": "tor1",
+                                                                 "metric": "do.droplets.cpu_utilization"})).json()
+    assert {s["entity"] for s in body["series"]} == {"kraken-tentacle-1", "kraken-tentacle-2"}
+    assert all(len(s["points"]) == 1 for s in body["series"])
+
+
+async def test_labels_need_a_metric(env):
+    r = await env.client.get("/api/insights/labels", params={"region": "tor1", "name": "filesystem_mountpoint"})
+    assert r.status_code == 400
+    r = await env.client.get("/api/insights/labels", params={"region": "tor1", "name": "filesystem_mountpoint",
+                                                              "match": "do.droplets.filesystem_free_bytes"})
+    assert r.json()["values"] == ["/"]
+
+
+async def test_alerts_overview(env):
+    body = (await env.client.get("/api/insights/alerts")).json()
+    rt = next(r for r in body["rules"] if r["purpose"] == "round-trip")
+    assert (rt["operator"], rt["critical"], rt["window"], rt["re_alert"], rt["status"]) == (">=", 60, "1m", "30m",
+                                                                                           "active")
+    assert len(body["rules"]) == 6 and body["errors"] == []
+    assert all(i["rule_name"] == "kraken churn" and i["status"] == "resolved" for i in body["instances"])
+    hook = next(c for c in body["channels"] if c["type"] == "webhook")
+    assert hook["points_here"] and set(hook["statuses"]) == {"bearer_token_status", "signature_status"}
+    assert body["write"] is False
+
+
+async def test_rule_status_needs_write_mode_and_a_fleet_rule():
+    rid = "00000000-0000-0000-0000-0000000000a2"
+    async with AppEnv() as e:
+        r = await e.client.post(f"/api/insights/rules/{rid}/status", json={"status": "active"}, headers=e.captain())
+        assert r.status_code == 403 and r.json()["error"]["code"] == "write_mode_off"
+    async with AppEnv(base_env(PORTHOLE_INSIGHTS_WRITE="1")) as e:
+        r = await e.client.post("/api/insights/rules/not-ours/status", json={"status": "paused"}, headers=e.captain())
+        assert r.status_code == 403
+        r = await e.client.post(f"/api/insights/rules/{rid}/status", json={"status": "active"}, headers=e.captain())
+        assert r.status_code == 200 and r.json()["rule"]["status"] == "active"
+        put = next(c for c in reversed(e.deps.trace.ring) if c.method == "PUT")
+        assert "notification_channels" not in put.body["spec"] and put.body["status"] == "ALERT_RULE_STATUS_ACTIVE"
+        assert e.insights.store.rules[rid]["spec"]["notification_channels"]  # bindings kept
+
+
+async def test_logs_page_and_rules(env):
+    body = (await env.client.get("/api/insights/logs", params={"region": "tor1", "service": "porthole",
+                                                               "severity": "INFO", "limit": 5})).json()
+    assert body["count"] == 5 and body["summary"] == "Insights returned 5 records"
+    sent = body["body_sent"]
+    assert set(sent["time_range"]["from"]) == {"absolute"} and sent["pagination"]["limit"] == 5
+    assert sent["order_by"][0]["direction"] == "SORT_DIRECTION_DESC"
+    more = (await env.client.get("/api/insights/logs", params={
+        "region": "tor1", "service": "porthole", "limit": 5, "cursor": body["pagination"]["next_cursor"],
+        "start": body["window"]["start"], "end": body["window"]["end"]})).json()
+    assert more["records"][0]["timestamp"] <= body["records"][-1]["timestamp"]
+    for params, code in (({"region": "both"}, "one_region"), ({"service": "someone-else"}, "bad_service"),
+                         ({"severity": "LOUD"}, "bad_severity"), ({"limit": 101}, "bad_limit")):
+        r = await env.client.get("/api/insights/logs", params={"region": "tor1", **params})
+        assert r.status_code == 400 and r.json()["error"]["code"] == code
+
+
+async def test_expected_logs_say_a6b_when_insights_has_none(env):
+    env.fleet.by_name("kraken-tentacle-1").start("logs", {"seconds": "60", "rate": "50", "error_pct": "10"},
+                                                 env.clock.now())
+    await env.advance(180)
+    (row,) = (await env.client.get("/api/insights/logs/expected", params={"range": "1h"})).json()
+    assert row["emitted"] == 3000 and row["insights_count"] == 0 and row["verdict"] == "not collected (A6b)"
+    assert row["by_severity"]["ERROR"] == 300
+    assert row["text"] == ("Not yet collected by DigitalOcean: tentacle-1 reports 3,000 lines between 14:00Z and "
+                           "14:01Z, Insights returned 0 for service kraken-tentacle-1 (finding A6b, checked 14:03Z)")
+
+
+async def test_expected_logs_collected_when_droplet_logs_arrive():
+    async with AppEnv(droplet_logs=True) as e:
+        e.fleet.by_name("kraken-tentacle-1").start("logs", {"seconds": "60", "rate": "40", "error_pct": "5"},
+                                                   e.clock.now())
+        await e.advance(120)
+        (row,) = (await e.client.get("/api/insights/logs/expected")).json()
+        assert row["verdict"] == "collected" and row["insights_count"] == 2400
+        assert row["text"].startswith("Collected: Insights returned 2,400 of 2,400 lines")
+
+
+async def test_chain_runs_listed_with_trace_ids(env):
+    env.fleet.by_name("kraken-tentacle-1").start("chain", {"count": "20", "latency_ms": "250", "error_pct": "20"},
+                                                 env.clock.now())
+    await env.advance(30)
+    body = (await env.client.get("/api/traces/chains")).json()
+    (chain,) = body["chains"]
+    assert chain["ok"] + chain["failed"] == 20 and len(chain["first_trace_id"]) == 32
+    assert body["traces_link"]["verified"] is False
+
+
+async def test_probes_fall_back_to_family_metrics():
+    async with AppEnv(reject_metricless=True) as e:
+        snap = (await e.client.get("/api/fleet")).json()
+        assert snap["probe_mode"] == "family"
+        assert all(t["seen_in_insights"] for t in snap["tentacles"])
+        assert snap["sea"]["functions"]["seen_in_insights"] is True  # matched by name in family mode
+        assert any("per-family probe metrics" in line["body"] for line in e.log_lines())
+
+
+async def test_fleet_snapshot_shape(env):
+    snap = (await env.client.get("/api/fleet")).json()
+    t1 = snap["tentacles"][0]
+    assert t1["reachable"] and t1["health"]["mem_pct"] > 0 and t1["seen_in_insights"] is True
+    assert snap["head"]["seen_in_insights"] is True and snap["probe_mode"] == "selector"
+    assert snap["sea"]["functions"]["seen_in_insights"] is None  # no URN to match in selector mode
+    env.fleet.by_name("kraken-tentacle-2").unreachable = True
+    await env.advance(11)
+    snap = (await env.client.get("/api/fleet")).json()
+    t2 = snap["tentacles"][1]
+    assert t2["reachable"] is False and "unreachable" in t2["error"]
+
+
+async def test_insights_not_configured():
+    async with AppEnv(base_env(DIGITALOCEAN_TOKEN=None)) as e:
+        r = await e.client.get("/api/insights/range", params=range_params())
+        assert r.status_code == 503 and r.json()["error"]["code"] == "insights_not_configured"
+        snap = (await e.client.get("/api/fleet")).json()
+        assert snap["tentacles"][0]["seen_reason"] == "Insights not configured"
+
+
+async def test_token_never_leaks_after_every_panel(env):
+    reads = [("/api/insights/range", range_params(region="both")), ("/api/insights/query", range_params()),
+             ("/api/insights/catalog", {"region": "both"}), ("/api/insights/alerts", None),
+             ("/api/insights/labels", {"region": "tor1", "name": "__name__"}),
+             ("/api/insights/logs", {"region": "tor1"}), ("/api/insights/logs/expected", None), ("/api/fleet", None),
+             ("/api/traces/chains", None), ("/api/config", None), ("/healthz", None), ("/api/traces/own", None),
+             ("/api/logs/own", None)]
+    texts = []
+    for path, params in reads:
+        r = await env.client.get(path, params=params)
+        assert r.status_code == 200, path
+        texts.append(r.text)
+    r = await env.client.post("/api/insights/promql", json={"region": "tor1", "query": "sum(do.droplets.load_1)"},
+                              headers=env.captain())
+    texts.append(r.text)
+    r = await env.client.post("/api/insights/logs/search", headers=env.captain(), json={
+        "region": "tor1", "filter": {"text_search": {"query": "GET"}}, "limit": 10})
+    assert r.status_code == 200
+    texts.append(r.text)
+    trace = (await env.client.get("/api/trace", params={"limit": 500})).json()["calls"]
+    assert len(trace) > 10
+    for call in trace:
+        texts.append((await env.client.get(f"/api/trace/{call['id']}")).text)
+    texts += [env.stdout.getvalue(), json.dumps([c.full() for c in env.deps.trace.ring]),
+              json.dumps(env.deps.telemetry.ring.traces())]
+    for text in texts:
+        assert TOKEN not in text and CAPTAIN not in text

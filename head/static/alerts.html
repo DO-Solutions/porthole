@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Porthole: Alerts</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/skin.css">
+  <link rel="stylesheet" href="/static/css/porthole.css">
+  <script type="module" src="/static/js/pages/alerts.js"></script>
+</head>
+<body>
+  <header id="frame-top"></header>
+  <main>
+    <section class="card span-12" aria-labelledby="alerts-title">
+      <h1 id="alerts-title">Alerts</h1>
+      <p class="explainer">An alert rule watches one metric over a window and notifies channels when the threshold is crossed. Porthole reads the rules we created for the fleet, their instances (active and resolved) and the channels, including the webhook channel that points back at this site. Deliveries to that webhook appear below with their headers, so the undocumented signature scheme can be seen. Run the 'Alert round trip' voyage to watch the whole loop with timings.</p>
+      <p class="small dim" id="alerts-status"></p>
+    </section>
+    <section class="card span-12" aria-labelledby="rules-title">
+      <div class="card-head"><h2 id="rules-title">Rules</h2><span class="small dim">fetched by id; the list endpoint omits rules made in the control panel (finding A2)</span></div>
+      <div class="table-wrap" id="rules"><p class="empty">loading...</p></div>
+    </section>
+    <section class="card span-7" aria-labelledby="instances-title">
+      <div class="card-head"><h2 id="instances-title">Instances</h2>
+        <div class="segmented" role="group" aria-label="instance status" id="instance-filter"></div></div>
+      <div class="table-wrap" id="instances"><p class="empty">loading...</p></div>
+    </section>
+    <section class="card span-5" aria-labelledby="channels-title">
+      <h2 id="channels-title">Channels</h2>
+      <div id="channels"><p class="empty">loading...</p></div>
+    </section>
+    <section class="card span-12" aria-labelledby="deliveries-title">
+      <div class="card-head"><h2 id="deliveries-title">Deliveries to /hooks/insights</h2><span class="small dim" id="hook-url"></span></div>
+      <div class="table-wrap" id="deliveries"><p class="empty">loading...</p></div>
+      <div id="delivery-detail"></div>
+    </section>
+    <section class="card span-12" aria-labelledby="trip-title">
+      <h2 id="trip-title">Alert round trip</h2>
+      <div id="round-trip"><p class="empty">loading...</p></div>
+    </section>
+  </main>
+  <footer id="frame-drawer"></footer>
+</body>
+</html>

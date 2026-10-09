@@ -10,6 +10,7 @@ import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from porthole import __version__
@@ -64,6 +65,10 @@ VARIABLES: tuple[Var, ...] = (
     Var("PORTHOLE_VERSION", "GENERAL", "", "version shown in /healthz; the Dockerfile bakes the git SHA when given"),
 )
 
+# Slot N uses the skin's fleet color SLOT_PALETTE[N-1] (1-based). The file order failed the palette validator's
+# adjacent-pair checks; this order passes them with zero hex changes (head/static/README.md). porthole.css
+# carries the same map as --slot-N custom properties.
+SLOT_PALETTE = (1, 6, 5, 8, 2, 4, 3, 7)
 SEA_KINDS = ("load_balancer", "database", "kubernetes", "functions", "spaces", "registry", "agent")
 DEFAULT_SLOTS = {"load_balancer": 4, "head": 5, "database": 6, "kubernetes": 7, "functions": 8}
 REGION_RE = re.compile(r"^[a-z]{3}\d$")
@@ -449,3 +454,12 @@ def _secret_problems(s: Settings) -> list[str]:
     if s.hook_basic and ":" not in s.hook_basic:
         out.append("PORTHOLE_HOOK_BASIC must be user:password")
     return out
+
+
+def slot_palette(watcher_dir: Path) -> dict:
+    """{"1": "#30cbd9", ...} from watcher/skin/kraken.skin.json in the validated slot order."""
+    try:
+        fleet = json.loads((watcher_dir / "skin" / "kraken.skin.json").read_text())["fleet"]
+        return {str(slot): fleet[idx - 1] for slot, idx in enumerate(SLOT_PALETTE, start=1)}
+    except (OSError, ValueError, KeyError, IndexError):
+        return {}

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Porthole: Logs</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/skin.css">
+  <link rel="stylesheet" href="/static/css/porthole.css">
+  <script type="module" src="/static/js/pages/logs.js"></script>
+</head>
+<body>
+  <header id="frame-top"></header>
+  <main>
+    <section class="card span-12" aria-labelledby="logs-title">
+      <h1 id="logs-title">Logs</h1>
+      <p class="explainer">The Logs API searches one region for up to seven days with a filter tree and cursor paging. For Droplets, logs are supposed to arrive through the Observability agent; on 8 October 2026 the agent installed by the tick box shipped metrics only (finding A6b). This page shows three things side by side: what Insights returns, what this App Platform app emitted, and what the tentacles say they wrote during a log storm, so the gap is visible instead of hidden.</p>
+      <div class="row">
+        <label class="field"><span class="label">time range</span><select id="range"></select></label>
+        <label class="field"><span class="label">service</span><select id="service"><option value="">all fleet services</option></select></label>
+        <label class="field"><span class="label">severity at least</span><select id="severity">
+          <option value="">any</option><option>DEBUG</option><option>INFO</option><option>WARN</option><option>ERROR</option>
+        </select></label>
+        <label class="field"><span class="label">text (captain)</span><input id="text" type="search" maxlength="200"></label>
+        <button type="button" class="primary" id="search">Search</button>
+      </div>
+      <div class="banner" id="banner" role="status">loading...</div>
+    </section>
+    <section class="card span-12" aria-label="log sources">
+      <div class="tabs" role="tablist" id="tabs"></div>
+      <div id="tab-insights" role="tabpanel"></div>
+      <div id="tab-head" role="tabpanel" class="hidden"></div>
+      <div id="tab-expected" role="tabpanel" class="hidden"></div>
+    </section>
+  </main>
+  <footer id="frame-drawer"></footer>
+</body>
+</html>

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Porthole: Dashboards</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/skin.css">
+  <link rel="stylesheet" href="/static/vendor/uplot/uPlot.min.css">
+  <link rel="stylesheet" href="/static/css/porthole.css">
+  <script src="/static/vendor/uplot/uPlot.iife.min.js" defer></script>
+  <script type="module" src="/static/js/pages/dashboards.js"></script>
+</head>
+<body>
+  <header id="frame-top"></header>
+  <main>
+    <section class="card span-12" aria-labelledby="dash-title">
+      <h1 id="dash-title">Dashboards</h1>
+      <p class="explainer">Dashboards have no API yet, so this page cannot draw yours. It shows the dashboard we built for the fleet as a file you can import in the control panel, and runs each of its queries here so you can check what the chart would show. Variables, thresholds and chart types are listed from the file.</p>
+    </section>
+    <section class="card span-5" aria-labelledby="import-title">
+      <h2 id="import-title">Import this dashboard</h2>
+      <p><a class="button" href="/watcher/dashboards/krakens-eye.json" download>Download krakens-eye.json</a></p>
+      <ol>
+        <li>Open Insights, then the Dashboards tab (<a id="dash-link" href="#">control panel</a>).</li>
+        <li>Choose Create dashboard and name it Kraken's Eye.</li>
+        <li>Choose to import a dashboard file and drop krakens-eye.json in.</li>
+        <li>Pick tor1 in the dashboard's region list; switch to syd1 for tentacle-3.</li>
+      </ol>
+      <p class="small dim">The file in this repo is a placeholder until the real export replaces it: the dashboard file format is not documented.</p>
+    </section>
+    <section class="card span-7" aria-labelledby="vars-title">
+      <h2 id="vars-title">Variables and thresholds</h2>
+      <div id="variables"><p class="empty">loading...</p></div>
+    </section>
+    <section class="card span-12" aria-labelledby="whats-title">
+      <h2 id="whats-title">What's in it</h2>
+      <div class="table-wrap" id="charts-table"><p class="empty">loading...</p></div>
+      <div id="run-output"></div>
+    </section>
+  </main>
+  <footer id="frame-drawer"></footer>
+</body>
+</html>

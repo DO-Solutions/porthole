@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 
+from porthole.config import slot_palette
 from porthole.security import captain
 
 router = APIRouter()
@@ -32,17 +33,18 @@ def caps(deps: Any) -> dict:
 def build_config(deps: Any) -> dict:
     s, fleet, links = deps.settings, deps.settings.fleet, deps.links
     entities = [_entity(e, links) for e in fleet.entities()]
-    by_name = {e["name"]: e for e in entities}
+    by_key = {f"{e['kind']}:{e['name']}": e for e in entities}
     hook_auth = "+".join(k for k, v in (("bearer", s.hook_bearer), ("basic", s.hook_basic)) if v) or "none"
     return {
         "version": s.version,
         "regions": list(fleet.regions),
-        "region_default": fleet.regions[0] if fleet.regions else "tor1",
+        "region_default": "both" if len(fleet.regions) > 1 else (fleet.regions[0] if fleet.regions else "tor1"),
         "fleet": {
             "project": fleet.project,
-            "tentacles": [{**by_name[t.name], "peer": t.peer} for t in fleet.tentacles],
-            "head": by_name.get(fleet.head.name) if fleet.head else None,
-            "sea": {kind: {**by_name[spec.name], **{k: v for k, v in spec.extra.items() if k in ("ip", "engine")}}
+            "tentacles": [{**by_key[f"tentacle:{t.name}"], "peer": t.peer} for t in fleet.tentacles],
+            "head": by_key.get(f"app:{fleet.head.name}") if fleet.head else None,
+            "sea": {kind: {**by_key[f"{kind}:{spec.name}"],
+                           **{k: v for k, v in spec.extra.items() if k in ("ip", "engine")}}
                     for kind, spec in fleet.sea.items()},
             "rules": [{"id": r.id, "purpose": r.purpose, "name": r.name, "target": r.target}
                       for r in fleet.watcher.rules],
@@ -50,6 +52,7 @@ def build_config(deps: Any) -> dict:
         },
         "entities": entities,
         "slots": {e.name: e.slot for e in fleet.entities() if e.slot},
+        "palette": slot_palette(deps.watcher_dir),
         "features": {"write": s.insights_write, "brain": s.brain, "captain_configured": s.captain_configured,
                      "insights_configured": bool(s.token), "hook_auth": hook_auth,
                      "hook_signature": bool(s.hook_secret), "otlp": deps.telemetry.describe()},

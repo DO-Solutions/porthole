@@ -1,6 +1,14 @@
 /* Layout and components for every Porthole page: frame, cards, tables, buttons, drawer, timeline, charts.
    Colors come only from skin.css. Series colors never color text; status uses words and icons too. */
 
+/* Color slots. The skin's eight fleet colors failed the palette validator's adjacent-pair checks in file
+   order (head/static/README.md), so slots map to them in a validated order: zero hex changes. The same
+   order is SLOT_PALETTE in porthole/config.py and the palette in /api/config. */
+:root {
+  --slot-1: var(--fleet-1); --slot-2: var(--fleet-6); --slot-3: var(--fleet-5); --slot-4: var(--fleet-8);
+  --slot-5: var(--fleet-2); --slot-6: var(--fleet-4); --slot-7: var(--fleet-3); --slot-8: var(--fleet-7);
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
@@ -214,3 +222,6 @@ dialog input { width: 100%; margin: 0.5rem 0; }
   padding: 0.5rem 0.8rem; max-width: 26rem; font-size: 0.86rem; }
 .toast.failure { border-left-color: var(--fail); }
 .toast.attention { border-left-color: var(--gold); }
+
+.span-9 { grid-column: span 9; }
+@media (max-width: 1000px) { .span-9 { grid-column: span 12; } }

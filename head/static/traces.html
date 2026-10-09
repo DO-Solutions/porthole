@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Porthole: Traces</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/skin.css">
+  <link rel="stylesheet" href="/static/css/porthole.css">
+  <script type="module" src="/static/js/pages/traces.js"></script>
+</head>
+<body>
+  <header id="frame-top"></header>
+  <main>
+    <section class="card span-12" aria-labelledby="traces-title">
+      <h1 id="traces-title">Traces</h1>
+      <p class="explainer">Insights shows traces in the control panel but has no traces API, so Porthole cannot fetch them. It shows the trace ids produced by the tentacle request chains and its own spans, and links to the Traces tab where you can search for an id. How an application's traces reach Insights is not documented yet; this page says what was exported and where.</p>
+    </section>
+    <section class="card span-12" aria-labelledby="chains-title">
+      <div class="card-head"><h2 id="chains-title">Chains run</h2><a class="small" id="traces-link" href="#">Search in Insights, Traces tab</a></div>
+      <div class="table-wrap" id="chains"><p class="empty">loading...</p></div>
+    </section>
+    <section class="card span-8" aria-labelledby="own-title">
+      <div class="card-head"><h2 id="own-title">This head's own spans</h2><span class="small" id="export"></span></div>
+      <div id="own"><p class="empty">loading...</p></div>
+    </section>
+    <section class="card span-4" aria-labelledby="state-title">
+      <h2 id="state-title">State</h2>
+      <p>Traces have no API; Porthole cannot verify what Insights collected. Open the Traces tab and search for a trace id above.</p>
+      <p class="small dim">The tentacles export spans over OTLP/HTTP to a local collector that the Observability agent may or may not provide (finding A6). The head exports only when OTEL_EXPORTER_OTLP_ENDPOINT is set.</p>
+    </section>
+  </main>
+  <footer id="frame-drawer"></footer>
+</body>
+</html>

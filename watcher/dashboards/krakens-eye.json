@@ -1,0 +1,17 @@
+{
+  "_porthole_note": "PLACEHOLDER. The Insights dashboard file format is not documented. Build the dashboard in the control panel from krakens-eye.queries.json, export it (Settings > JSON) and replace this file with the export. Porthole serves this file as is and never parses it.",
+  "name": "Kraken's Eye",
+  "description": "The kraken fleet of the Porthole demo: tentacles, load balancer, database, Kubernetes, Function and the head.",
+  "default_time_range": "1h",
+  "default_refresh": "30s",
+  "variables": [
+    {"name": "tentacle", "type": "list", "source": "label_values", "metric": "do.droplets.cpu_utilization",
+     "label": "resource_name", "regex": "kraken-tentacle-.*", "multi": true, "all": true},
+    {"name": "threshold", "type": "text", "value": "60", "constant": true}
+  ],
+  "groups": [
+    {"name": "Tentacles", "charts": ["Tentacle CPU", "CPU now", "Memory used", "Load, 1 minute", "Free disk", "Private network out"]},
+    {"name": "The sea", "charts": ["Load balancer requests", "Database connections", "Function invocations", "Head requests"]},
+    {"name": "Logs and notes", "charts": ["Tentacle errors", "How to read this"]}
+  ]
+}

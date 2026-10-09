@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Porthole: API</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/skin.css">
+  <link rel="stylesheet" href="/static/css/porthole.css">
+  <script type="module" src="/static/js/pages/api.js"></script>
+</head>
+<body>
+  <header id="frame-top"></header>
+  <main>
+    <section class="card span-12" aria-labelledby="api-title">
+      <h1 id="api-title">API</h1>
+      <p class="explainer">Every request Porthole makes to the DigitalOcean API is listed here: method, path, parameters, status, time and the start of the response. Secrets are replaced with ***. Copy a call as curl to run it yourself with your own token.</p>
+      <div class="row">
+        <label class="field"><span class="label">target</span><select id="target">
+          <option value="">all</option><option>insights</option><option>tentacle</option><option>function</option><option>lb</option>
+        </select></label>
+        <label class="field"><span class="label">path contains</span><input id="q" type="search" maxlength="200"></label>
+        <span class="small dim" id="api-count"></span>
+      </div>
+    </section>
+    <section class="card span-12" aria-label="calls">
+      <div class="table-wrap"><table>
+        <thead><tr><th>time</th><th>target</th><th>method</th><th>path</th><th class="num">status</th><th class="num">ms</th><th>response</th></tr></thead>
+        <tbody id="calls"></tbody>
+      </table></div>
+      <div id="detail"></div>
+    </section>
+  </main>
+  <footer id="frame-drawer"></footer>
+</body>
+</html>
